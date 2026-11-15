@@ -1,7 +1,9 @@
 import type { AudioResult, PiperPlus, ProgressInfo } from 'piper-plus';
+import { voiceModelUrl } from './voice-assets';
+import { registerOffline } from './offline';
 
 // Both languages use this one multilingual voice. Pin the revision so model and config stay paired.
-export const voiceModelUrl = 'https://huggingface.co/ayousanz/piper-plus-tsukuyomi-chan/resolve/619ad26fcbd5635b3d70a27eac919f4c2ce892b1/tsukuyomi-chan-6lang-fp16.onnx';
+export { voiceModelUrl } from './voice-assets';
 export type SpeechLanguage = 'ja' | 'en';
 export type SpeechProgress = (message: string) => void;
 let engine: Promise<PiperPlus> | undefined;
@@ -11,6 +13,7 @@ export function loadVoice(onProgress: SpeechProgress = () => {}): Promise<PiperP
   if (!engine) {
     const start = performance.now();
     engine = (async () => {
+      await registerOffline();
       const [{ PiperPlus }, ort] = await Promise.all([import('piper-plus'), import('onnxruntime-web/wasm')]);
       // One WASM thread works on static hosts without COOP/COEP headers (including GitHub Pages).
       ort.env.wasm.numThreads = 1;

@@ -11,8 +11,10 @@ a { color: inherit; text-underline-offset: 3px; }
 .site-header { max-width: 1320px; padding: 1.5rem 2.5rem; margin: auto; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dbe1d6; }
 .brand { display: flex; align-items: center; gap: .7rem; text-decoration: none; font-size: 1.2rem; font-weight: 750; letter-spacing: -.04em; }
 .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; background: #193f3b; color: #fff; border-radius: 50%; font-size: 1rem; letter-spacing: -.07em; }
-.phase, .eyebrow, .step { font-size: .68rem; letter-spacing: .12em; font-weight: 700; }
-.phase { color: #69766d; }
+.eyebrow, .step { font-size: .68rem; letter-spacing: .12em; font-weight: 700; }
+.network { font-size: .78rem; font-weight: 650; padding: .3rem .75rem; border-radius: 20px; background: #dceee2; color: #1a6441; }
+.network[data-online=false] { background: #faecd7; color: #77501a; }
+.quality-warning { border: 1px solid #c57a2e; background: #fff5e7; padding: .8rem; border-radius: 7px; color: #774610; }
 main { max-width: 1250px; padding: 3rem 2.5rem 1rem; margin: auto; }
 .eyebrow { color: #667d61; }
 h1 { font-weight: 550; font-size: clamp(2.5rem, 5vw, 4.25rem); line-height: 1.04; letter-spacing: -.055em; margin: .9rem 0 1.1rem; }

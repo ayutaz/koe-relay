@@ -6,7 +6,7 @@ test('unconfigured production app is usable without contacting Firebase', async 
   const errors: string[] = [];
   page.on('request', request => { if (!request.url().startsWith('http://127.0.0.1:4173/')) external.push(request.url()); });
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByText('Firebase not configured', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Rewrite notice' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Prepare on-device AI' })).toBeDisabled();
@@ -32,7 +32,8 @@ test('unconfigured production app is usable without contacting Firebase', async 
 
 test('speech failure is recoverable and leaves the app usable', async ({ page }) => {
   await page.route('https://huggingface.co/**', route => route.abort('failed'));
-  await page.goto('/');
+  // Dev has no service worker; page routes cannot intercept a worker's upstream fetch.
+  await page.goto('http://127.0.0.1:4174/koe-relay/');
   await page.getByRole('button', { name: 'Test Japanese voice' }).click();
   await expect(page.locator('#speech-message')).toContainText('Speech failed:', { timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'Test English voice' })).toBeEnabled();
@@ -40,11 +41,11 @@ test('speech failure is recoverable and leaves the app usable', async ({ page })
   await expect(page.locator('#device-count')).toHaveText('0');
 });
 
-test('real piper-plus Japanese and English playback', async ({ page }) => {
+test('real piper-plus Japanese and English playback survives an offline reload', async ({ page, context }) => {
   test.skip(process.env.RUN_TTS !== '1', 'Opt in to the real voice download with RUN_TTS=1. No Firebase calls.');
   test.setTimeout(300_000);
   const errors: string[] = [];
-  const resources: { url: string; bytes: number; milliseconds: number }[] = [];
+  const resources: { url: string; bytes: number | null; fromServiceWorker: boolean; milliseconds: number }[] = [];
   const starts = new Map<string, number>();
   const captures: Promise<void>[] = [];
   await page.addInitScript(() => {
@@ -74,11 +75,13 @@ test('real piper-plus Japanese and English playback', async ({ page }) => {
       const response = await request.response();
       if (!response?.ok()) return;
       // Reading huge bodies through CDP can exceed its inspector buffer. Network byte counts do not.
-      const bytes = (await request.sizes()).responseBodySize;
-      resources.push({ url: original.url(), bytes, milliseconds });
+      const fromServiceWorker = response.fromServiceWorker();
+      const rawBytes = (await request.sizes()).responseBodySize;
+      const bytes = !fromServiceWorker && rawBytes >= 0 ? rawBytes : null;
+      resources.push({ url: original.url(), bytes, fromServiceWorker, milliseconds });
     })());
   });
-  await page.goto('/');
+  await page.goto('./');
   const start = performance.now();
   await page.getByRole('button', { name: 'Load speech model' }).click();
   await expect(page.locator('#speech-message')).toHaveText(/Voice ready|Speech failed:/, { timeout: 240_000 });
@@ -88,16 +91,31 @@ test('real piper-plus Japanese and English playback', async ({ page }) => {
     await page.getByRole('button', { name: `Test ${language} voice` }).click();
     await expect(page.locator('#speech-message')).toHaveText('Speech finished.', { timeout: 60_000 });
   }
+  await expect(page.locator('#offline-status')).toContainText('speech saved for offline use');
+  const onlineAudioEvidence = await page.evaluate(() => (window as unknown as { audioEvidence: unknown[] }).audioEvidence);
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  await context.setOffline(true);
+  await cdp.send('Network.overrideNetworkState', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+  await page.reload();
+  await expect(page.locator('#network-status')).toHaveText('Offline');
+  expect(await page.evaluate(() => fetch('./uncached-offline-probe').then(() => false, () => true))).toBe(true);
+  for (const language of ['Japanese', 'English']) {
+    await page.getByRole('button', { name: `Test ${language} voice` }).click();
+    await expect(page.locator('#speech-message')).toHaveText('Speech finished.', { timeout: 60_000 });
+  }
   await expect(page.locator('#device-count')).toHaveText('0');
   expect(errors).toEqual([]);
   await Promise.all(captures);
   const audioEvidence = await page.evaluate(() => (window as unknown as { audioEvidence: { frames: number; sampleRate: number; duration: number; peak: number; finite: boolean }[] }).audioEvidence);
   expect(audioEvidence).toHaveLength(2);
+  expect(onlineAudioEvidence).toHaveLength(2);
   for (const audio of audioEvidence) {
     expect(audio.finite).toBe(true);
     expect(audio.duration).toBeGreaterThan(0.2);
     expect(audio.peak).toBeGreaterThan(0.001);
   }
   await mkdir('.artifacts', { recursive: true });
-  await writeFile('.artifacts/tts-browser.json', JSON.stringify({ browserVersion: page.context().browser()?.version(), initializationMilliseconds, resources, audioEvidence, errors, humanListeningReview: 'unverified' }, null, 2));
+  await page.screenshot({ path: '.artifacts/offline-desktop.png', fullPage: true });
+  await writeFile('.artifacts/tts-browser.json', JSON.stringify({ browserVersion: page.context().browser()?.version(), initializationMilliseconds, resources, onlineAudioEvidence, offlineAudioEvidence: audioEvidence, errors, humanListeningReview: 'unverified' }, null, 2));
 });

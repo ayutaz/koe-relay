@@ -5,6 +5,6 @@ export default defineConfig({
   outputDir: '.artifacts/browser',
   workers: 1,
   timeout: 30_000,
-  use: { channel: 'chrome', baseURL: 'http://127.0.0.1:4173', headless: true },
+  use: { channel: 'chrome', baseURL: 'http://127.0.0.1:4173/koe-relay/', headless: true },
   globalSetup: './tests/browser/server.ts',
 });
