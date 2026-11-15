@@ -1,4 +1,4 @@
-import { firebaseConfigured, firebaseStatus, initializeDeviceModel } from '../firebase';
+import { firebaseConfigured, firebaseStatus, initializeDeviceModel, setCloudModel } from '../firebase';
 import { counters, rewriteNotice } from '../rewrite';
 import type { Notice, Source } from '../rewrite';
 import { modes, readMode, saveMode, hasSavedMode } from '../settings';
@@ -30,7 +30,7 @@ export function mountApp(root: HTMLElement): void {
           <p id="mode-help" class="hint"></p>
           <label for="extra-language">Additional output language</label><select id="extra-language"><option value="">Japanese + English only</option>${extraLanguages.map(code => `<option value="${code}">${languages[code].label} · ${languages[code].onDevice ? 'cloud / compatible devices' : 'cloud required'}</option>`).join('')}</select>
           <p id="language-help" class="hint"></p>
-          <div class="action-row"><button id="rewrite" class="primary">Rewrite notice <span aria-hidden="true">↗</span></button><button id="download" class="secondary">Prepare on-device AI</button></div>
+          <div class="action-row"><button id="rewrite" class="primary">Rewrite notice <span aria-hidden="true">↗</span></button><button id="retry" class="secondary" hidden>Retry rewrite</button><button id="download" class="secondary">Prepare on-device AI</button></div>
           <progress id="download-progress" max="1" value="0" hidden aria-label="AI model download progress"></progress>
           <p id="ai-message" class="message" role="status" aria-live="polite"></p>
         </section>
@@ -70,6 +70,7 @@ export function mountApp(root: HTMLElement): void {
     if (pendingSettings && !aiBusy) {
       const settings = pendingSettings;
       pendingSettings = undefined;
+      setCloudModel(settings.cloudModel);
       if (!hasSavedMode() && !interactionStarted) mode.value = settings.defaultMode;
       for (const option of language.options) option.hidden = !!option.value && !settings.enabledLanguages.includes(option.value as ExtraLanguage);
       if (language.selectedOptions[0]?.hidden) { language.value = ''; inputChanged(); }
@@ -77,6 +78,7 @@ export function mountApp(root: HTMLElement): void {
     const extra = selectedLanguage();
     const cloudRequired = !!extra && !languages[extra].onDevice;
     el<HTMLButtonElement>('rewrite').disabled = aiBusy || !firebaseConfigured || !input.value.trim() || (!navigator.onLine && (cloudRequired || mode.value === 'ONLY_IN_CLOUD')) || (cloudRequired && mode.value === 'ONLY_ON_DEVICE');
+    el<HTMLButtonElement>('retry').disabled = el<HTMLButtonElement>('rewrite').disabled;
     el<HTMLButtonElement>('download').disabled = aiBusy || !firebaseConfigured || mode.value === 'ONLY_IN_CLOUD' || cloudRequired;
     mode.disabled = aiBusy;
     language.disabled = aiBusy;
@@ -122,6 +124,7 @@ export function mountApp(root: HTMLElement): void {
     el('source').textContent = 'NO INFERENCE YET';
     delete el('source').dataset.source;
     el('ai-message').textContent = '';
+    el('retry').hidden = true;
     updateControls();
   }
   for (const key of ['train', 'shelter'] as const) el(`sample-${key}`).onclick = () => { input.value = samples[key]; inputChanged(); };
@@ -131,9 +134,11 @@ export function mountApp(root: HTMLElement): void {
   const refreshOffline = async () => { el('offline-status').textContent = await offlineStatus(); };
   window.addEventListener('online', () => { updateControls(); void refreshOffline(); });
   window.addEventListener('offline', () => { updateControls(); void refreshOffline(); });
-  el('rewrite').onclick = async () => {
+  const runRewrite = async () => {
+    if (aiBusy) return;
     interactionStarted = true;
     aiBusy = true;
+    el('retry').hidden = true;
     notice = null;
     el('result').hidden = true;
     el('empty-result').hidden = false;
@@ -148,8 +153,11 @@ export function mountApp(root: HTMLElement): void {
     } catch (error) {
       el('ai-message').textContent = `Rewrite failed: ${errorText(error)}`;
       el('source').textContent = 'NO VALID RESULT';
+      el('retry').hidden = false;
     } finally { aiBusy = false; updateCounters(); updateControls(); }
   };
+  el('rewrite').onclick = runRewrite;
+  el('retry').onclick = runRewrite;
   el('download').onclick = async () => {
     interactionStarted = true;
     aiBusy = true;

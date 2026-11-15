@@ -17,9 +17,12 @@ missing offline support, Remote Config, extra languages and deployment code.
 
 ## Output quality and model choice
 
-`src/rewrite.ts` now asks for short grammatical Japanese retaining kanji, with
-readings only when certain. It explicitly gives 強風（きょうふう） and
-確認してください, preserves every stated restriction/uncertainty, and requests
+`src/rewrite.ts` asks for short grammatical Japanese retaining kanji, with
+readings only when certain. Phase 1b replaces the train-specific examples with
+generic guidance about natural polite requests, correct kana and a reading example,
+図書館（としょかん）, which appears in neither fictional sample. It tells the model
+not to copy example content and to omit uncertain readings. It preserves every
+stated restriction/uncertainty, and requests
 verbatim original numbers, dates, times, floor numbers and place names in
 `easyJapanese`. English and optional translations should include original names
 and numeric/time expressions alongside translations. Source text remains JSON
@@ -51,11 +54,44 @@ Official sources checked **2026-11-15**:
 - [Firebase hybrid configuration](https://firebase.google.com/docs/ai-logic/hybrid/web/configuration-options)
   permits overriding the cloud model; the SDK default is Flash-Lite.
 
-The explicit cloud model is now **`gemini-3.8-flash`** as a quality candidate.
-There is no benchmark establishing better Japanese on these samples yet. No paid
-model, billing upgrade or alternate paid fallback was added. App Check enforcement
-remains required. The manager should compare the train and shelter samples on the
-new model before claiming a quality improvement.
+### Phase 1b model correction (2026-11-15)
+
+The default cloud model is now **`gemini-3.5-flash-lite`**. Its single in-code
+definition is `defaultCloudModel` in `src/settings.ts`; Firebase AI Logic and Remote
+Config both use that constant. Remote Config parameter **`cloud_model`** can override
+it. Empty or malformed names fall back to the in-code default. Accepted names are
+trimmed Gemini model IDs, up to 100 characters, matching
+`^gemini-[a-z0-9]+(?:[.-][a-z0-9]+)*$`. This validates syntax, not model availability
+or pricing. A valid configured model that fails does not trigger an automatic
+switch to another cloud model.
+
+The manager supplied these live findings from the real Spark project, Gemini
+Developer API and App Check debug token, using the same request body:
+
+| Model | Manager-reported result |
+| --- | --- |
+| `gemini-3.8-flash` | No response within the 150-second curl limit; app remained waiting for over 4 minutes. |
+| `gemini-3.5-flash-lite` | HTTP 200 in 2.2 seconds; easy Japanese had the correct 強風（きょうふう）, 確認してください and original numbers. |
+| `gemini-3.5-flash` | HTTP 200 in 10.8 seconds. |
+
+These are supplied measurements, not runs reproduced by Codex or latency
+guarantees. The earlier 3.8 quality candidate is withdrawn on this evidence. The
+generic Phase 1b prompt still needs live comparison on both samples. No billing
+upgrade or alternate paid fallback was added. App Check enforcement remains required.
+
+Every rewrite has a **45-second deadline**, including SDK preparation and hybrid
+fallback in all four inference modes. The UI leaves `WAITING FOR RESPONSE`, shows
+an English timeout error and an enabled **Retry rewrite** button when the deadline
+expires (subject to the usual input/network/mode requirements). Retry starts a fresh
+request using the current input and settings; retries are manual.
+
+The deadline attempts HTTP cancellation using the SDK's `AbortSignal`, and races
+the whole SDK call so an unresponsive SDK/device path cannot keep the UI busy.
+Underlying backend/device work may continue if cancellation is unsupported. A
+late success or failure from an expired call cannot update output or counters,
+including in `PREFER_ON_DEVICE` and `PREFER_IN_CLOUD`. Timeouts increment none of
+ON_DEVICE / IN_CLOUD / Unknown. Responses received within the deadline still count
+their actual SDK source even if output validation subsequently rejects them.
 
 The full JSON-encoded prompt is limited to **6,500 UTF-8 bytes** for any request
 that can reach Nano. This is a conservative proxy, leaving over 2,700 of the 9,216
@@ -148,11 +184,14 @@ previously activated settings. No Authentication or Analytics is required.
 | --- | --- | --- | --- |
 | `default_inference_mode` | STRING | `PREFER_ON_DEVICE` | `PREFER_ON_DEVICE`, `ONLY_ON_DEVICE`, `PREFER_IN_CLOUD`, `ONLY_IN_CLOUD` |
 | `enabled_languages` | STRING containing JSON array | `["ja","en","zh","es","fr","pt"]` | Language codes from the catalog; unknown codes discarded. |
+| `cloud_model` | STRING | `gemini-3.5-flash-lite` | Syntactically valid Gemini model ID as described above; empty/malformed values use the local default. |
 
 Japanese/English are mandatory baseline outputs and remain enabled even for `[]`.
 A saved valid user mode overrides the remote default. New settings are deferred
 during inference, and the remote default does not overwrite a mode after an AI
-interaction. Disabled optional languages are hidden. Selecting another language
+interaction. Cloud model changes also wait until the current AI action finishes;
+changing the model clears cached model instances so subsequent requests use the
+new value. Disabled optional languages are hidden. Selecting another language
 clears stale output; remotely disabling the current optional language does too.
 
 Manager REST template fragment (values here are public defaults, not credentials):
@@ -166,6 +205,10 @@ Manager REST template fragment (values here are public defaults, not credentials
     },
     "enabled_languages": {
       "defaultValue": {"value": "[\"ja\",\"en\",\"zh\",\"es\",\"fr\",\"pt\"]"},
+      "valueType": "STRING"
+    },
+    "cloud_model": {
+      "defaultValue": {"value": "gemini-3.5-flash-lite"},
       "valueType": "STRING"
     }
   }
@@ -221,6 +264,8 @@ behavior, testing, credits and hosted judge steps. Reference:
 
 ## Verification and handoff
 
+### Original Phase 1 verification
+
 - `npm test`: **25 unit tests passed** (mocked Firebase APIs).
 - `RUN_TTS=1 npm run test:browser`: **8 browser tests passed**, including real
   online/offline Japanese and English playback. A normal run skips the real download.
@@ -233,12 +278,33 @@ behavior, testing, credits and hosted judge steps. Reference:
   Permission denied. No commits, push or deployment. See
   [local commit groups](local-commits-phase1.md).
 
-Unverified: live `gemini-3.8-flash` project access and Japanese quality, all real
+### Phase 1b verification (2026-11-15)
+
+- `npm test`: **35 unit tests passed**, including all four modes reaching the
+  45-second deadline, attempted cancellation, no counts for expired calls, a fresh
+  retry, late-response suppression and timer cleanup. Firebase APIs are mocked.
+- `KOE_RELAY_TEST=1 npm run build`: passed using the empty environment directory.
+- `npm run test:browser`: **11 passed, 1 skipped**. New mocked browser checks cover
+  both PREFER modes and cloud-only timing out, visible English errors/retry,
+  successful retry, unchanged output/counters after a late cloud response, and
+  deferred Remote Config model changes. Playwright advances the browser clock;
+  these are not live network timing measurements. The optional real speech
+  download was skipped in this pass.
+- Normal `npm run build`: passed (TypeScript + Vite); existing upstream asset URL
+  and large dictionary chunk warnings remain.
+- `node scripts/check-production.mjs`: passed. `git diff --check`: passed.
+- Work stayed local. No push, deployment, live inference or Remote Config update.
+  Neither private environment file's values were printed or copied. Suggested
+  commit group: [Phase 1b local commit](local-commits-phase1b.md).
+- Explicit staging failed with `.git/index.lock: Permission denied`; no Phase 1b
+  commit was created in this read-only Git session.
+
+Unverified by Codex: live quality of the revised Phase 1b prompt, all real
 extra-language translations, Nano Japanese/English/es/fr inference and offline
 rewriting, real SDK hybrid failover, hosted App Check, live Remote Config, Pages
 deployment/update lifecycle on the hosted origin and human listening quality.
-The supplied successful cloud run used the earlier configuration, so it does not
-validate the new prompt/model.
+The manager's successful cloud runs validate the reported requests only; they do
+not validate the generic Phase 1b prompt or the new timeout UI against live Firebase.
 
 The manager must set the Remote Config parameters and Pages variables/source,
 complete the existing public-history/internal-notes cleanup and dependency/voice

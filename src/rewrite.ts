@@ -17,6 +17,7 @@ export interface Notice {
 
 export type Source = 'ON_DEVICE' | 'IN_CLOUD';
 export const counters = { ON_DEVICE: 0, IN_CLOUD: 0, UNKNOWN: 0 };
+export const rewriteTimeoutMs = 45_000;
 
 export function parseNotice(text: string, language?: ExtraLanguage): Notice {
   const value: unknown = JSON.parse(text);
@@ -34,15 +35,12 @@ export function parseNotice(text: string, language?: ExtraLanguage): Notice {
 
 export function validateQuality(source: string, output: string): string[] {
   if (/くだだい|くだささい|しててください/.test(output)) throw new Error('Possible Japanese typo detected. Compare with the original and try rewriting again.');
-  if (source.includes('強風') && (/つうふう/.test(output) || /強風[（(](?!きょうふう[）)])[^）)]+[）)]/.test(output))) {
-    throw new Error('Incorrect reading of 強風 detected (きょうふう). Try rewriting again.');
-  }
   const numbers = (text: string) => [...new Set(text.match(/[0-9０-９]+(?:[.:：．][0-9０-９]+)*/g) ?? [])].sort();
   if (JSON.stringify(numbers(source)) !== JSON.stringify(numbers(output))) throw new Error('The Japanese rewrite changed or omitted source numbers. Check the original and try again.');
   const times = source.match(/(?:午前|午後)?[0-9０-９一二三四五六七八九十百〇零]+(?:年|月|日|時|分|階)/g) ?? [];
   if (times.some(time => !output.includes(time))) throw new Error('The Japanese rewrite changed or omitted a source date, time, or floor. Check the original and try again.');
   // Conservative place-name heuristic, not a general Japanese entity recognizer.
-  const places = source.match(/[一-龯々ァ-ヶーA-Za-z]+(?:駅|線|空港|公園)|[ぁ-ん一-龯々ァ-ヶー]+(?:市民センター|避難所|病院|小学校|中学校)/g) ?? [];
+  const places = source.match(/[一-龯々ァ-ヶーA-Za-z]+(?:駅|線|空港|公園)|(?:(?![にをはがでへともや])[ぁ-ん一-龯々ァ-ヶー])+(?:市民センター|避難所|病院|小学校|中学校)/g) ?? [];
   return [...new Set(places.filter(place => !output.includes(place)))].map(place => `Check this source place name: ${place}. It is missing or changed in easy Japanese.`);
 }
 
@@ -53,7 +51,8 @@ export function buildPrompt(text: string, language?: ExtraLanguage, deviceBudget
   const prompt = `Rewrite the Japanese notice below for a reader who needs clear, accessible information.
 Return the requested JSON object. summary, actions, place, and time must be in plain English.
 easyJapanese: use short grammatical sentences. Keep kanji; add correct readings in parentheses only when certain.
-Example: 強風（きょうふう）, never つうふう. Write 確認してください, never みてくだだい.
+For a reading example, 図書館（としょかん）. Use natural, correctly spelled polite requests; do not duplicate or drop kana.
+Do not copy example content into the rewrite unless it is in the source. Omit a reading if unsure; never guess.
 Do not force all-hiragana. Copy ALL numbers, dates, times, floor numbers, and place names EXACTLY from the source into easyJapanese. Do not add numbers.
 english must be a complete plain English version. Retain original place names and number/time expressions in parentheses alongside translations.
 Keep every stated location, time, restriction, and uncertainty. Do not invent advice or facts.
@@ -70,7 +69,23 @@ NOTICE_JSON: ${JSON.stringify(trimmed)}`;
 
 export async function rewriteWithModel(text: string, model: Pick<GenerativeModel, 'generateContent'>, language?: ExtraLanguage, deviceBudget = true): Promise<{ notice: Notice; source: Source | null; warnings: string[] }> {
   const prompt = buildPrompt(text, language, deviceBudget);
-  const result = await model.generateContent(prompt);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error('The rewrite request timed out after 45 seconds. Check your connection and retry, or try another inference mode.'));
+      controller.abort();
+    }, rewriteTimeoutMs);
+  });
+  // Race the entire hybrid call: SDK preparation/fallback can outlive its HTTP
+  // timeout. Only the winning response reaches validation, counters, and the UI.
+  let result;
+  try {
+    result = await Promise.race([
+      model.generateContent(prompt, { signal: controller.signal }),
+      deadline,
+    ]);
+  } finally { clearTimeout(timer); }
   const reported = result.response.inferenceSource;
   const source: Source | null = reported === InferenceSource.ON_DEVICE ? 'ON_DEVICE'
     : reported === InferenceSource.IN_CLOUD ? 'IN_CLOUD' : null;

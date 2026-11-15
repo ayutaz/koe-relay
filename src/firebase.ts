@@ -4,6 +4,7 @@ import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-ch
 import { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode } from 'firebase/ai';
 import type { AI, GenerativeModel } from 'firebase/ai';
 import type { Mode } from './settings';
+import { defaultCloudModel, parseCloudModel } from './settings';
 import { makeNoticeSchema } from './schema';
 import type { ExtraLanguage } from './languages';
 import { languages } from './languages';
@@ -27,7 +28,14 @@ export const firebaseStatus = firebaseConfigured ? 'Firebase ready to connect' :
 let ai: AI | undefined;
 let app: FirebaseApp | undefined;
 const models = new Map<string, GenerativeModel>();
-export const cloudModel = 'gemini-3.8-flash';
+let cloudModel = defaultCloudModel;
+
+export function setCloudModel(value: string): void {
+  const next = parseCloudModel(value);
+  if (next === cloudModel) return;
+  cloudModel = next;
+  models.clear();
+}
 
 export function getFirebaseApp(): FirebaseApp {
   if (!firebaseConfigured) throw new Error('Firebase not configured');

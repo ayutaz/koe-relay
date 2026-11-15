@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { routeMode } from './languages';
 import { buildPrompt, validateQuality, rewriteWithModel } from './rewrite';
 import { parseRemoteSettings } from './remote-config';
+import { samples } from './ui/samples';
 
 it('routes unsupported device languages to cloud without violating ONLY_ON_DEVICE', () => {
   expect(routeMode('PREFER_ON_DEVICE', 'zh')).toBe('ONLY_IN_CLOUD');
@@ -14,11 +15,11 @@ it('routes unsupported device languages to cloud without violating ONLY_ON_DEVIC
   expect(() => routeMode('ONLY_IN_CLOUD', undefined, false)).toThrow('offline');
 });
 
-it('rejects the observed typo and misreading without silently editing model output', () => {
-  expect(() => validateQuality('強風です。', 'つうふうです。みてくだだい。')).toThrow();
-  expect(() => validateQuality('強風です。', '強風（つうふう）です。')).toThrow('reading');
+it('rejects the observed typo without silently editing model output', () => {
   expect(() => validateQuality('強風です。', '強風（きょうふう）です。みてくだだい。')).toThrow('typo');
   expect(validateQuality('強風です。', '強風（きょうふう）です。確認してください。')).toEqual([]);
+  // A particle before a facility word is not part of a place name.
+  expect(validateQuality('ひかり市民センターの1階に避難所を開設します。', 'ひかり市民センターの1階（いっかい）に避難所（ひなんじょ）を開きます。')).toEqual([]);
   // Adjacent kana can be correct Japanese. Do not indiscriminately ban them.
   expect(validateQuality('ここで待ってください。', 'ここで、まってください。')).toEqual([]);
 });
@@ -39,13 +40,24 @@ it('keeps the serialized device prompt under a conservative UTF-8 byte budget', 
   expect(buildPrompt('あ'.repeat(4000), undefined, false)).toContain('NOTICE_JSON');
 });
 
+it('gives generic reading and spelling guidance without leaking either sample into instructions', () => {
+  for (const sample of Object.values(samples)) {
+    const instructions = buildPrompt(sample).split('NOTICE_JSON: ')[0];
+    expect(instructions).toContain('図書館（としょかん）');
+    expect(instructions).toContain('Do not copy example content into the rewrite');
+    for (const phrase of ['強風', 'つうふう', '確認してください', 'みてくだだい', '青葉', '川見', 'ひかり', '避難所']) {
+      expect(instructions).not.toContain(phrase);
+    }
+  }
+});
+
 it('requires the selected extra translation in the response', async () => {
   const model = { generateContent: vi.fn().mockResolvedValue({ response: { inferenceSource: 'in_cloud', text: () => JSON.stringify({ summary: 's', actions: [], place: 'Not stated', time: 'Not stated', easyJapanese: '案内です。', english: 'Notice.' }) } }) };
   await expect(rewriteWithModel('案内です。', model as never, 'es')).rejects.toThrow('translation');
 });
 
 it('parses Remote Config defensively and never enables unknown languages or modes', () => {
-  expect(parseRemoteSettings('ONLY_IN_CLOUD', '["ja","en","es","xx"]')).toEqual({ defaultMode: 'ONLY_IN_CLOUD', enabledLanguages: ['ja', 'en', 'es'] });
-  expect(parseRemoteSettings('invalid', '{bad')).toEqual({ defaultMode: 'PREFER_ON_DEVICE', enabledLanguages: ['ja', 'en', 'zh', 'es', 'fr', 'pt'] });
+  expect(parseRemoteSettings('ONLY_IN_CLOUD', '["ja","en","es","xx"]', ' gemini-3.5-flash ')).toEqual({ defaultMode: 'ONLY_IN_CLOUD', enabledLanguages: ['ja', 'en', 'es'], cloudModel: 'gemini-3.5-flash' });
+  expect(parseRemoteSettings('invalid', '{bad')).toEqual({ defaultMode: 'PREFER_ON_DEVICE', enabledLanguages: ['ja', 'en', 'zh', 'es', 'fr', 'pt'], cloudModel: 'gemini-3.5-flash-lite' });
   expect(parseRemoteSettings('ONLY_ON_DEVICE', '[]').enabledLanguages).toEqual(['ja', 'en']);
 });

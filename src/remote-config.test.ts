@@ -16,9 +16,9 @@ vi.mock('firebase/remote-config', () => ({
 afterEach(() => { vi.clearAllMocks(); mocks.active = {}; });
 
 it('fetches and activates mode and language parameters with bounded fetch settings', async () => {
-  mocks.active = { default_inference_mode: 'ONLY_IN_CLOUD', enabled_languages: '["es"]' };
+  mocks.active = { default_inference_mode: 'ONLY_IN_CLOUD', enabled_languages: '["es"]', cloud_model: 'gemini-3.5-flash' };
   const { loadRemoteSettings } = await import('./remote-config');
-  expect(await loadRemoteSettings()).toEqual({ defaultMode: 'ONLY_IN_CLOUD', enabledLanguages: ['ja', 'en', 'es'] });
+  expect(await loadRemoteSettings()).toEqual({ defaultMode: 'ONLY_IN_CLOUD', enabledLanguages: ['ja', 'en', 'es'], cloudModel: 'gemini-3.5-flash' });
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(mocks.config.settings.fetchTimeoutMillis).toBe(4000);
 });
@@ -28,8 +28,14 @@ it('works when Remote Config is unreachable and retains previously activated set
   const { loadRemoteSettings } = await import('./remote-config');
   expect((await loadRemoteSettings()).defaultMode).toBe('PREFER_ON_DEVICE');
   mocks.fetch.mockRejectedValueOnce(new Error('Offline'));
-  mocks.active = { default_inference_mode: 'ONLY_ON_DEVICE', enabled_languages: '["fr"]' };
-  expect(await loadRemoteSettings()).toEqual({ defaultMode: 'ONLY_ON_DEVICE', enabledLanguages: ['ja', 'en', 'fr'] });
+  mocks.active = { default_inference_mode: 'ONLY_ON_DEVICE', enabled_languages: '["fr"]', cloud_model: 'gemini-3.5-flash' };
+  expect(await loadRemoteSettings()).toEqual({ defaultMode: 'ONLY_ON_DEVICE', enabledLanguages: ['ja', 'en', 'fr'], cloudModel: 'gemini-3.5-flash' });
+});
+
+it.each(['', 'not-a-model', 'gemini-3.5-flash?key=invalid'])('falls back safely for invalid cloud_model %s', async cloud_model => {
+  mocks.active = { cloud_model };
+  const { loadRemoteSettings } = await import('./remote-config');
+  expect((await loadRemoteSettings()).cloudModel).toBe('gemini-3.5-flash-lite');
 });
 
 it('uses safe defaults when browser storage does not support Remote Config', async () => {

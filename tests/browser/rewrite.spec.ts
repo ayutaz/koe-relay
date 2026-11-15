@@ -10,6 +10,7 @@ test('mocked SDK results render safely, count the reported source, and clear sta
     contentType: 'text/javascript',
     body: `export const firebaseConfigured = true;
       export const firebaseStatus = 'Firebase mock (test only)';
+      export function setCloudModel() {}
       export function getFirebaseApp() { throw new Error('Test: no live Firebase'); }
       let calls = 0;
       export function getNoticeModel(mode) {
@@ -55,6 +56,7 @@ test('extra language controls route cloud-only languages and declare optional de
   await page.route('**/src/firebase.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
     export const firebaseConfigured = true;
     export const firebaseStatus = 'Firebase mock (test only)';
+    export function setCloudModel() {}
     export function getFirebaseApp() { throw new Error('No live Firebase'); }
     window.modelCalls = [];
     export function getNoticeModel(mode, language) {
@@ -96,7 +98,7 @@ test('extra language controls route cloud-only languages and declare optional de
 
 test('Remote Config applies defaults and enabled languages while a saved mode wins', async ({ page }) => {
   await page.route('**/src/remote-config.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
-    export async function loadRemoteSettings() { return { defaultMode: 'ONLY_IN_CLOUD', enabledLanguages: ['ja', 'en', 'es'] }; }
+    export async function loadRemoteSettings() { return { defaultMode: 'ONLY_IN_CLOUD', enabledLanguages: ['ja', 'en', 'es'], cloudModel: 'gemini-3.5-flash-lite' }; }
   ` }));
   await page.goto('http://127.0.0.1:4174/koe-relay/');
   await expect(page.getByLabel('Inference mode')).toHaveValue('ONLY_IN_CLOUD');
@@ -111,18 +113,19 @@ test('Japanese quality failures hide results and place warnings remain visible f
   await page.route('**/src/firebase.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
     export const firebaseConfigured = true;
     export const firebaseStatus = 'Firebase mock (test only)';
+    export function setCloudModel() {}
     export function getFirebaseApp() { throw new Error('No live Firebase'); }
     let calls = 0;
     export function getNoticeModel() { return { async generateContent() {
       calls++;
-      const easyJapanese = calls === 1 ? '青葉駅は強風（つうふう）です。' : calls === 2 ? '青葉駅は強風です。みてくだだい。' : '強風（きょうふう）です。';
+      const easyJapanese = calls === 1 ? '青葉駅は強風です。みてくだだい。' : '強風（きょうふう）です。';
       return { response: { inferenceSource: 'in_cloud', text: () => JSON.stringify({summary: 'Strong wind', actions: [], place: 'Aoba', time: 'Not stated', easyJapanese, english: 'Strong wind.'}) } };
     } }; }
     export async function initializeDeviceModel() {}
   ` }));
   await page.goto('http://127.0.0.1:4174/koe-relay/');
   await page.getByLabel('Japanese notice', { exact: true }).fill('青葉駅は強風です。');
-  for (const word of ['reading', 'typo']) {
+  for (const word of ['typo']) {
     await page.getByRole('button', { name: 'Rewrite notice' }).click();
     await expect(page.locator('#ai-message')).toContainText(word);
     await expect(page.locator('#result')).toBeHidden();
@@ -131,5 +134,90 @@ test('Japanese quality failures hide results and place warnings remain visible f
   await expect(page.locator('#quality-warning')).toContainText('Needs review.');
   await expect(page.locator('#quality-warning')).toContainText('青葉駅');
   await expect(page.locator('#source')).toHaveText('IN_CLOUD');
-  await expect(page.locator('#cloud-count')).toHaveText('3');
+  await expect(page.locator('#cloud-count')).toHaveText('2');
+});
+
+for (const mode of ['PREFER_ON_DEVICE', 'PREFER_IN_CLOUD', 'ONLY_IN_CLOUD']) {
+  test(`${mode} times out, offers retry, and ignores a late cloud response`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/src/firebase.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
+      export const firebaseConfigured = true;
+      export const firebaseStatus = 'Firebase mock (test only)';
+      export function setCloudModel() {}
+      export function getFirebaseApp() { throw new Error('No live Firebase'); }
+      export async function initializeDeviceModel() {}
+      let calls = 0;
+      export function getNoticeModel() { return { generateContent(prompt) {
+        const first = ++calls === 1;
+        const result = { response: { inferenceSource: 'in_cloud', text: () => JSON.stringify({
+          summary: first ? 'Late response' : 'Fresh retry', actions: [], place: 'Not stated', time: 'Not stated',
+          easyJapanese: JSON.parse(prompt.split('NOTICE_JSON: ')[1]), english: 'Test notice.'
+        }) } };
+        // Deliberately ignore cancellation to exercise the outer deadline.
+        return first ? new Promise(resolve => setTimeout(() => resolve(result), 60_000)) : Promise.resolve(result);
+      } }; }
+    ` }));
+    await page.clock.install();
+    await page.goto('http://127.0.0.1:4174/koe-relay/');
+    await page.getByLabel('Japanese notice', { exact: true }).fill('案内です。');
+    await page.getByLabel('Inference mode').selectOption(mode);
+    await page.getByRole('button', { name: 'Rewrite notice' }).click();
+    await expect(page.locator('#source')).toHaveText('WAITING FOR RESPONSE');
+    await page.clock.fastForward(45_000);
+    await expect(page.locator('#ai-message')).toContainText('timed out after 45 seconds');
+    await expect(page.locator('#source')).toHaveText('NO VALID RESULT');
+    for (const counter of ['cloud-count', 'device-count', 'unknown-count']) await expect(page.locator('#' + counter)).toHaveText('0');
+    await expect(page.locator('#result')).toBeHidden();
+    await expect(page.getByLabel('Japanese notice', { exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Retry rewrite' }).click();
+    await expect(page.locator('#summary')).toHaveText('Fresh retry');
+    await expect(page.locator('#source')).toHaveText('IN_CLOUD');
+    await expect(page.locator('#cloud-count')).toHaveText('1');
+    await expect(page.getByRole('button', { name: 'Retry rewrite' })).toBeHidden();
+    await page.clock.fastForward(15_000);
+    await expect(page.locator('#summary')).toHaveText('Fresh retry');
+    await expect(page.locator('#cloud-count')).toHaveText('1');
+    expect(errors).toEqual([]);
+  });
+}
+
+test('Remote Config defers cloud_model changes until the active rewrite finishes', async ({ page }) => {
+  await page.route('**/src/remote-config.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
+    export function loadRemoteSettings() { return new Promise(resolve => { window.deliverSettings = () => resolve({
+      defaultMode: 'ONLY_IN_CLOUD', enabledLanguages: ['ja', 'en'], cloudModel: 'gemini-3.5-flash'
+    }); }); }
+  ` }));
+  await page.route('**/src/firebase.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
+    export const firebaseConfigured = true;
+    export const firebaseStatus = 'Firebase mock (test only)';
+    export function getFirebaseApp() { throw new Error('No live Firebase'); }
+    export async function initializeDeviceModel() {}
+    let cloudModel = 'gemini-3.5-flash-lite';
+    export function setCloudModel(value) { cloudModel = value; window.appliedModel = value; }
+    window.modelCalls = [];
+    export function getNoticeModel(mode) {
+      window.modelCalls.push({mode, cloudModel});
+      return { generateContent(prompt) {
+        const result = { response: { inferenceSource: 'in_cloud', text: () => JSON.stringify({
+          summary: 'Notice', actions: [], place: 'Not stated', time: 'Not stated',
+          easyJapanese: JSON.parse(prompt.split('NOTICE_JSON: ')[1]), english: 'Notice.'
+        }) } };
+        return window.modelCalls.length === 1 ? new Promise(resolve => { window.finishRewrite = () => resolve(result); }) : Promise.resolve(result);
+      } };
+    }
+  ` }));
+  await page.goto('http://127.0.0.1:4174/koe-relay/');
+  await page.getByLabel('Japanese notice', { exact: true }).fill('案内です。');
+  await page.getByRole('button', { name: 'Rewrite notice' }).click();
+  await page.evaluate(() => (window as unknown as { deliverSettings: () => void }).deliverSettings());
+  expect(await page.evaluate(() => (window as unknown as { appliedModel?: string }).appliedModel)).toBeUndefined();
+  await page.evaluate(() => (window as unknown as { finishRewrite: () => void }).finishRewrite());
+  await expect(page.locator('#source')).toHaveText('IN_CLOUD');
+  await expect(page.getByRole('button', { name: 'Rewrite notice' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Rewrite notice' }).click();
+  expect(await page.evaluate(() => (window as unknown as { modelCalls: unknown[] }).modelCalls)).toEqual([
+    { mode: 'PREFER_ON_DEVICE', cloudModel: 'gemini-3.5-flash-lite' },
+    { mode: 'PREFER_ON_DEVICE', cloudModel: 'gemini-3.5-flash' },
+  ]);
 });

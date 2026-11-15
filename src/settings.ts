@@ -1,6 +1,14 @@
 export const modes = ['PREFER_ON_DEVICE', 'ONLY_ON_DEVICE', 'PREFER_IN_CLOUD', 'ONLY_IN_CLOUD'] as const;
 export type Mode = (typeof modes)[number];
 
+// Single source of truth for Firebase AI Logic and Remote Config's local default.
+export const defaultCloudModel = 'gemini-3.5-flash-lite';
+
+export function parseCloudModel(value: string = defaultCloudModel): string {
+  const name = value.trim();
+  return name.length <= 100 && /^gemini-[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(name) ? name : defaultCloudModel;
+}
+
 export function readMode(fallback: Mode = 'PREFER_ON_DEVICE'): Mode {
   try {
     const saved = localStorage.getItem('koe-relay.mode');
