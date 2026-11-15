@@ -33,7 +33,8 @@ export function getNoticeModel(mode: Mode): GenerativeModel {
       storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
     });
     if (import.meta.env.DEV) {
-      (self as typeof self & { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+      (self as typeof self & { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string }).FIREBASE_APPCHECK_DEBUG_TOKEN =
+        import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
     }
     initializeAppCheck(app, {
       provider: new ReCaptchaEnterpriseProvider(import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY),
