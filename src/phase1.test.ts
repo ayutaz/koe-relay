@@ -42,7 +42,10 @@ it('keeps the serialized device prompt under a conservative UTF-8 byte budget', 
 
 it('gives generic reading and spelling guidance without leaking either sample into instructions', () => {
   for (const sample of Object.values(samples)) {
-    const instructions = buildPrompt(sample, undefined, false).split('NOTICE_JSON: ')[0];
+    const full = buildPrompt(sample, undefined, false).split('NOTICE_JSON: ')[0];
+    // The only source-derived instruction line is the quoted must-keep list.
+    expect(full).toContain('Each of these exact phrases must appear unchanged in easyJapanese');
+    const instructions = full.split('\n').filter(line => !line.startsWith('Each of these exact phrases')).join('\n');
     expect(instructions).toContain('図書館（としょかん）');
     expect(instructions).toContain('Do not copy example content into the rewrite');
     for (const phrase of ['強風', 'つうふう', '確認してください', 'みてくだだい', '青葉', '川見', 'ひかり', '避難所']) {

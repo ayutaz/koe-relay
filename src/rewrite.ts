@@ -115,12 +115,14 @@ NOTICE_JSON: ${JSON.stringify(trimmed)}`;
 export function buildPrompt(text: string, language?: ExtraLanguage, deviceBudget = true): string {
   if (deviceBudget) return buildOnDevicePrompt(text, language);
   const trimmed = checkedInput(text);
+  const keep = sourceMustKeep(trimmed);
   const prompt = `Rewrite the Japanese notice below for a reader who needs clear, accessible information.
 Return the requested JSON object. summary, actions, place, and time must be in plain English.
 easyJapanese: use short grammatical sentences. Keep kanji; add correct readings in parentheses only when certain.
 For a reading example, 図書館（としょかん）. Use natural, correctly spelled polite requests; do not duplicate or drop kana.
 Do not copy example content into the rewrite unless it is in the source. Omit a reading if unsure; never guess.
 Do not force all-hiragana. Copy ALL numbers, dates, times, floor numbers, and place names EXACTLY from the source into easyJapanese. Do not add numbers.
+${keep.length ? `Each of these exact phrases must appear unchanged in easyJapanese (a reading may follow it in parentheses): ${keep.map(x => `「${x}」`).join(' ')}` : ''}
 english must be a complete plain English version. Retain original place names and number/time expressions in parentheses alongside translations.
 Keep every stated location, time, restriction, and uncertainty. Do not invent advice or facts.
 Before returning JSON, check spelling, readings, names, numbers, negation and uncertainty against the source.
