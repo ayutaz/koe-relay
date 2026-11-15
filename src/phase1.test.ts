@@ -36,7 +36,7 @@ it('rejects changed or invented numbers and times and flags missing place names'
 });
 
 it('keeps the serialized device prompt under a conservative UTF-8 byte budget', () => {
-  expect(buildPrompt('強風です。', 'es')).toContain('Spanish');
+  expect(buildPrompt('強風です。', 'es')).toContain('translation must be ""');
   expect(new TextEncoder().encode(buildPrompt('あ'.repeat(1000))).length).toBeLessThan(6500);
   expect(() => buildPrompt('あ'.repeat(4000), undefined, true)).toThrow('on-device');
   expect(buildPrompt('あ'.repeat(4000), undefined, false)).toContain('NOTICE_JSON');
@@ -58,7 +58,7 @@ it('gives generic reading and spelling guidance without leaking either sample in
 
 it('requires the selected extra translation in the response', async () => {
   const model = { generateContent: vi.fn().mockResolvedValue({ response: { inferenceSource: 'in_cloud', text: () => JSON.stringify({ summary: 's', actions: [], place: 'Not stated', time: 'Not stated', easyJapanese: '案内です。', english: 'Notice.' }) } }) };
-  await expect(rewriteWithModel('案内です。', model as never, 'es')).rejects.toThrow('translation');
+  await expect(rewriteWithModel('案内です。', model as never, 'es', false)).rejects.toThrow('translation');
 });
 
 it('parses Remote Config defensively and never enables unknown languages or modes', () => {

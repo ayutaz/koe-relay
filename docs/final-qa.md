@@ -2,6 +2,36 @@
 
 Checked **2026-11-15 (Asia/Tokyo)** against the #BuildHybridAI 2026 requirements supplied by the author. Scope: this public repository and its existing [GitHub Pages deployment](https://ayutaz.github.io/koe-relay/). The original QA record below is supplemented by the later Nano findings and local quality-hardening verification. No push, deployment, remote configuration change or commit was made. This session exposes `.git` as read-only. No environment-file contents or private App Check token values were printed or copied into this report.
 
+## Nano simplification + Chrome Translator pipeline (2026-11-15)
+
+The author supplied a further measurement on **Chrome 157**, **Gemini Nano through Firebase AI Logic `ONLY_ON_DEVICE`**, using the current sentence-by-sentence device prompt, **8 runs on the same two fictional samples**. These findings are author-supplied; this implementation pass did not repeat live inference.
+
+- Easy Japanese retained all source facts across the 8 runs.
+- Nano's English renamed fictional 青葉線 to **“Tozai Line” / “Asakusa Line”**, and 青葉駅 to **“Asakusa Station”**, in **3 of 4 train runs**. Retaining Japanese names in parentheses worked only partially.
+- Nano returned the summary in Japanese in **5 of 8 runs**, despite the previous English instruction.
+- Chrome's built-in **Translator API, ja→en, on device**, translated both samples correctly in the supplied comparison: **“Aoba Line, Aoba Station, Kawami Station”**, **“Hikari Civic Center 1F”**, **“As of 3:00 pm on November 15”**.
+- `Translator.availability({sourceLanguage:'ja', targetLanguage:'en'})` returned **`downloadable`**; `Translator.create(...)` downloaded in about **7 seconds**. These are two fictional notices and a small sample, not a benchmark or a guarantee for unseen names or notices.
+
+The local implementation now asks Nano for Japanese simplification and short Japanese summary/action/place/time fields, retaining the sentence-by-sentence and quoted must-keep instructions and unchanged JSON schema/`responseConstraint`. English and optional translation are empty placeholders. After device validation, Chrome Translator translates the full trimmed original (including its leading fictional label), and translates Nano's Japanese fields into English. Missing place/time become “Not stated”. The English source note distinguishes Chrome Translator from cloud Gemini; badges and counters still use actual SDK inference sources.
+
+Device-first routing checks Nano availability with the same language declarations as Firebase, English translator availability and any eligible extra-language translator. Unready online `PREFER_ON_DEVICE` requests use `ONLY_IN_CLOUD` and the cloud prompt with a visible reason; device-only/offline requests fail with “Prepare on-device AI first”. An unexpected SDK cloud fallback for the device prompt reruns with the cloud prompt and counts both responses. Quality failures retain the existing one-cloud-rerun or at-most-three-device-attempt policy. Chinese/Portuguese stay cloud-required. The Prepare button starts Nano and translator preparation together from a user gesture and displays combined progress; rewriting can only create a translator when already `available`.
+
+[Chrome's official Translator documentation](https://developer.chrome.com/docs/ai/translator-api) specifies desktop support (Chrome **138+**), feature detection, pair availability, download monitoring and user activation for creation. Nano has separate compatible Chrome **148+** requirements.
+
+### Local pipeline verification
+
+All commands below completed on the final implementation with `KOE_RELAY_TEST=1` for npm commands, isolating tests/builds from real environment files.
+
+| Check | Result |
+| --- | --- |
+| `KOE_RELAY_TEST=1 npm test` | **124 passed**, 8 test files. Mocked Translator and `LanguageModel.availability` cover readiness routing, matching Firebase language options, gesture-only downloads, per-target caching, full-source/field translations, empty summary rejection, SDK cloud fallback and actual response counters. Existing quality/retry checks remain covered. |
+| `KOE_RELAY_TEST=1 npm run build` | Passed TypeScript and Vite production build. Existing optional-loader URL and large dictionary-chunk warnings remain. |
+| `node scripts/check-production.mjs` | Passed on the isolated production build. |
+| `KOE_RELAY_TEST=1 npm run test:browser` | **16 passed, 1 skipped**, 26.0 seconds. Includes combined Nano/Translator preparation progress, active user gesture on translator creation, unprepared-translator cloud routing/reason, both English source notes and existing escalation/offline tests. The skipped real-speech test requires `RUN_TTS=1`; speech code is unchanged. |
+| `git diff --check` | Passed. |
+
+Tests mock Nano/Translator and do not establish real-device semantic quality or post-change offline Nano/Translator behavior. No live Firebase inference or real Translator download was performed during implementation verification. Earlier measurements below are retained as historical findings, including earlier prompts' failures. No commit or push was made.
+
 ## Real Nano findings and quality hardening
 
 The author supplied subsequent real **Chrome 157**, **Firebase AI Logic `ONLY_ON_DEVICE`** results on **2026-11-15** for the two fictional samples, **8 runs** total. This is author-supplied runtime evidence, distinct from the earlier headless availability check and this change's mocked regression tests.
@@ -11,7 +41,7 @@ The author supplied subsequent real **Chrome 157**, **Firebase AI Logic `ONLY_ON
 - One run passed the checks while still containing wrong readings. Passing the existing checks was therefore insufficient quality evidence. The supplied account does not fully characterize every remaining run.
 - The author reports correct readings from cloud **`gemini-3.5-flash-lite`** on these samples. This comparison does not establish correctness for arbitrary notices.
 
-Local changes add a compact device prompt forbidding readings and listing source fact tokens verbatim, retaining JSON `responseConstraint` and a conservative prompt budget. Both paths reject unsupported scripts in `easyJapanese`; device readings are rejected without modifying the response. Online `PREFER_ON_DEVICE` validation failures rerun once in cloud `gemini-3.5-flash-lite`, with an explicit reason line, actual response-source badge and both counters incremented. Offline or `ONLY_ON_DEVICE` validation failures allow at most two further device attempts. Ordinary cloud-first prompts/routing remain unchanged; SDK availability fallback for a device-first request shares its compact prompt.
+The earlier local changes added a compact device prompt forbidding readings and listing source fact tokens verbatim, retaining JSON `responseConstraint` and a conservative prompt budget. Both paths reject unsupported scripts in `easyJapanese`; device readings are rejected without modifying the response. Online `PREFER_ON_DEVICE` validation failures rerun once in cloud `gemini-3.5-flash-lite`, with an explicit reason line, actual response-source badge and both counters incremented. Offline or `ONLY_ON_DEVICE` validation failures allow at most two further device attempts. At that stage, SDK availability fallback for a device-first request shared its compact prompt; the newer pipeline above replaces that behavior.
 
 ### Real Nano after the prompt change (2026-11-15)
 
@@ -20,7 +50,7 @@ Measured in Chrome 157 with Gemini Nano downloaded, against the deployed GitHub 
 | Prompt | Runs passing all checks | Notes |
 | --- | --- | --- |
 | Compact prompt, "short sentences" + fact token list | 2 of 6 in-app results (each allowing 3 device attempts) | Shelter notice repeatedly lost `11月15日午後6時` and `ひかり市民センターの1階` |
-| One easy sentence per source sentence + quoted phrases (current) | **6 of 6** | All dates, times, floors, stations and places kept; no parenthetical readings; one run dropped the closing sentence; output stays close to the source wording |
+| One easy sentence per source sentence + quoted phrases (before Translator split) | **6 of 6** | All dates, times, floors, stations and places kept; no parenthetical readings; one run dropped the closing sentence; output stays close to the source wording |
 
 A direct Chrome Prompt API comparison with the same schema (4 runs per sample and variant) gave 8 of 8 for each sentence-by-sentence variant. These are small samples on two notices, not a benchmark. Easier wording with readings comes from the cloud path.
 
@@ -117,7 +147,7 @@ The newly written SVG and this report were also reviewed for private data. Gener
 
 ## Remaining verification limits
 
-- The later real Nano results above expose quality failures. The revised prompt's real device quality and offline Nano operation still require verification on a compatible machine; this implementation pass supplies mocked regression evidence.
+- The latest supplied Nano results support fact retention on these small samples but expose English naming failures. The integrated Nano + Translator pipeline and offline operation still need real-device verification; this implementation pass supplies mocked regression evidence.
 - The live cloud check covers one train rewrite in Chrome. It does not prove factual correctness, all translations, all browsers or future free-tier capacity.
 - Human review of generated text and speech is still needed; heuristics cannot guarantee readings, meaning, negation or safety-critical facts.
 - The app has no sign-in, paywall or judge allowlist. **Free and unrestricted access until judging ends remains an operational requirement**, not something a single QA run can guarantee. The owner must maintain hosting, sufficient quota and working App Check. Billing-console state, attestation enforcement settings and the entire judging period were not independently verified.

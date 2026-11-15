@@ -11,6 +11,7 @@ import type { ExtraLanguage } from '../languages';
 import { loadRemoteSettings } from '../remote-config';
 import type { RemoteSettings } from '../remote-config';
 import { offlineStatus, saveSpeechOffline } from '../offline';
+import { prepareTranslator, translatorAvailability } from '../translate';
 
 export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
@@ -44,7 +45,7 @@ export function mountApp(root: HTMLElement): void {
             <p id="quality-warning" class="quality-warning" role="alert" hidden></p>
             <h3>At a glance</h3><p id="summary"></p><dl><div><dt>Place</dt><dd id="place"></dd></div><div><dt>Time</dt><dd id="time"></dd></div></dl><h3>What to do</h3><ul id="actions"></ul>
             <div class="language-result"><div class="language-heading"><h3>Easy Japanese</h3><button id="speak-ja" class="secondary">Speak Japanese</button></div><p id="easy-japanese" lang="ja"></p></div>
-            <div class="language-result"><div class="language-heading"><h3>English</h3><button id="speak-en" class="secondary">Speak English</button></div><p id="english" lang="en"></p></div>
+            <div class="language-result"><div class="language-heading"><h3>English</h3><button id="speak-en" class="secondary">Speak English</button></div><p id="english-source" class="hint"></p><p id="english" lang="en"></p></div>
             <div id="extra-result" class="language-result" hidden><h3 id="extra-heading"></h3><p id="translation"></p><p class="hint">Text output only. Local speech is available in Japanese and English.</p></div>
           </div>
         </section>
@@ -87,7 +88,7 @@ export function mountApp(root: HTMLElement): void {
     for (const id of ['sample-train', 'sample-shelter']) el<HTMLButtonElement>(id).disabled = aiBusy;
     el('character-count').textContent = `${input.value.length} / 4,000`;
     el('mode-help').textContent = mode.value === 'ONLY_ON_DEVICE' ? 'On-device only. If this device cannot run Japanese + English, the request fails without sending the notice to the cloud.' : mode.value === 'ONLY_IN_CLOUD' ? 'Cloud only. Rewriting sends this notice to Google through Firebase AI Logic.' : 'Hybrid mode. This notice may be sent to Google through Firebase AI Logic if cloud inference is selected or needed.';
-    if (!navigator.onLine) el('mode-help').textContent += ' Offline: cloud is unavailable; a compatible, prepared Nano model is required.';
+    if (!navigator.onLine) el('mode-help').textContent += ' Offline: cloud is unavailable; prepared Nano and Chrome translators are required.';
     el('language-help').textContent = cloudRequired ? `${languages[extra!].label} requires cloud. Both PREFER modes route this request to cloud only. Unavailable offline or in ONLY_ON_DEVICE.` : extra ? `${languages[extra].label} is available in cloud modes. On-device generation may be attempted on compatible Chrome devices; prepare this language selection first.` : 'Easy Japanese and English are always included. Extra languages are text only.';
     el('network-status').textContent = navigator.onLine ? 'Online' : 'Offline';
     el('network-status').dataset.online = String(navigator.onLine);
@@ -108,6 +109,7 @@ export function mountApp(root: HTMLElement): void {
     el('actions').replaceChildren(...value.actions.map(text => { const item = document.createElement('li'); item.textContent = text; return item; }));
     if (!value.actions.length) { const item = document.createElement('li'); item.textContent = 'No actions stated.'; el('actions').append(item); }
     el('source').textContent = source ?? 'SOURCE UNKNOWN';
+    el('english-source').textContent = source === 'ON_DEVICE' ? 'Translated on device (Chrome Translator API)' : source === 'IN_CLOUD' ? 'Gemini (cloud)' : '';
     el('source').dataset.source = source ?? 'UNKNOWN';
     el('quality-warning').hidden = !warnings.length;
     el('quality-warning').textContent = warnings.length ? `Needs review. ${warnings.join(' ')}` : '';
@@ -179,7 +181,30 @@ export function mountApp(root: HTMLElement): void {
     progress.value = 0;
     el('ai-message').textContent = 'Preparing Japanese + English on-device AI…';
     try {
-      await initializeDeviceModel(mode.value as Mode, fraction => { progress.value = fraction; el('ai-message').textContent = `AI model download: ${Math.round(fraction * 100)}%`; }, selectedLanguage());
+      const extra = selectedLanguage();
+      const targets = ['en', ...(extra && languages[extra].onDevice ? [extra] : [])];
+      const fractions = new Array<number>(targets.length + 1).fill(0);
+      const report = (index: number, fraction: number) => {
+        fractions[index] = Math.max(0, Math.min(1, fraction));
+        progress.value = fractions.reduce((sum, value) => sum + value, 0) / fractions.length;
+        el('ai-message').textContent = `On-device setup: ${Math.round(progress.value * 100)}% · Nano ${Math.round(fractions[0] * 100)}% · Translator ${targets.map((target, index) => `${target} ${Math.round(fractions[index + 1] * 100)}%`).join(' · ')}`;
+      };
+      // Start all setup from this click, before any await can lose user activation.
+      const translations = targets.map((target, index) => {
+        // An unsupported optional pair stays cloud-routed; English is required.
+        const preparation = prepareTranslator(target, fraction => report(index + 1, fraction));
+        return preparation.catch(async error => {
+          if (target === 'en' || await translatorAvailability(target) !== 'unavailable') throw error;
+          report(index + 1, 1);
+        });
+      });
+      const model = (async () => {
+        await initializeDeviceModel(mode.value as Mode, fraction => report(0, fraction), extra);
+        report(0, 1);
+      })();
+      const outcomes = await Promise.allSettled([...translations, model]);
+      const failed = outcomes.find(outcome => outcome.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
       progress.value = 1;
       el('ai-message').textContent = 'On-device AI ready. A real rewrite will report the inference source.';
     } catch (error) { progress.hidden = true; el('ai-message').textContent = `On-device setup failed: ${errorText(error)} Try a cloud-capable mode when online.`; }

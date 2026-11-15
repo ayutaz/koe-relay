@@ -8,6 +8,22 @@ import { defaultCloudModel, parseCloudModel } from './settings';
 import { makeNoticeSchema } from './schema';
 import type { ExtraLanguage } from './languages';
 import { languages } from './languages';
+import type { Availability } from './translate';
+
+export function deviceCreateOptions(language?: ExtraLanguage) {
+  return {
+    expectedInputs: [{ type: 'text' as const, languages: ['en', 'ja'] }],
+    expectedOutputs: [{ type: 'text' as const, languages: ['en', 'ja', ...(language && languages[language].onDevice ? [language] : [])] }],
+  };
+}
+
+export async function deviceModelAvailability(language?: ExtraLanguage): Promise<Availability> {
+  const model = typeof self === 'undefined' ? undefined : (self as typeof self & {
+    LanguageModel?: { availability(options: ReturnType<typeof deviceCreateOptions>): Promise<Availability> };
+  }).LanguageModel;
+  try { return await model?.availability(deviceCreateOptions(language)) ?? 'unavailable'; }
+  catch { return 'unavailable'; }
+}
 
 // Keep every access static. A dynamic import.meta.env[key] causes Vite to embed
 // the entire VITE_* environment object, including unused development-only values.
@@ -79,10 +95,7 @@ export function getNoticeModel(mode: Mode, language?: ExtraLanguage, cloudModelO
       },
     },
     onDeviceParams: {
-      createOptions: {
-        expectedInputs: [{ type: 'text', languages: ['en', 'ja'] }],
-        expectedOutputs: [{ type: 'text', languages: ['en', 'ja', ...(language && languages[language].onDevice ? [language] : [])] }],
-      },
+      createOptions: deviceCreateOptions(language),
       promptOptions: { responseConstraint: noticeSchema },
     },
   });

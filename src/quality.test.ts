@@ -4,12 +4,18 @@ import * as firebase from './firebase';
 import { buildOnDevicePrompt, buildPrompt, counters, hasUnsupportedScript, rewriteNotice, rewriteWithModel, sourceFactTokens, sourceMustKeep, validateQuality } from './rewrite';
 import { samples } from './ui/samples';
 
+vi.mock('./translate', () => ({
+  translatorAvailability: vi.fn().mockResolvedValue('available'),
+  translateAll: vi.fn(async (texts: string[]) => texts.map(text => text === '電車は止まっています。' ? 'Trains are suspended.' : text)),
+}));
+
 const source = '11月15日午後3時、ひかり市民センターの1階に来てください。';
 const notice = { summary: 'Notice', actions: [], place: 'ひかり市民センター 1階', time: '11月15日 午後3時', easyJapanese: source, english: 'Notice.' };
 function model(easyJapanese = source, inferenceSource = 'on_device') {
   return { generateContent: vi.fn().mockResolvedValue({ response: { inferenceSource, text: () => JSON.stringify({ ...notice, easyJapanese }) } }) } as unknown as GenerativeModel;
 }
-beforeEach(() => { counters.ON_DEVICE = counters.IN_CLOUD = counters.UNKNOWN = 0; vi.stubGlobal('navigator', { onLine: true }); });
+beforeEach(() => { counters.ON_DEVICE = counters.IN_CLOUD = counters.UNKNOWN = 0;
+  vi.stubGlobal('self', { LanguageModel: { availability: vi.fn().mockResolvedValue('available') } }); vi.stubGlobal('navigator', { onLine: true }); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 it('quotes source dates, times, floors and places in the device prompt', () => {
@@ -25,7 +31,7 @@ it('builds a shorter device prompt with exact extracted fact tokens and no readi
     expect(prompt).toContain('Do NOT add readings in parentheses');
     expect(prompt).toContain('one short, easy Japanese sentence');
     for (const phrase of sourceMustKeep(text)) expect(prompt).toContain(`「${phrase}」`);
-    expect(prompt).toContain('French');
+    expect(prompt).toContain('translation must be ""');
     expect(prompt).not.toContain('図書館（としょかん）');
     expect(prompt.length).toBeLessThan(buildPrompt(text, 'fr', false).length);
     expect(new TextEncoder().encode(prompt).length).toBeLessThanOrEqual(6500);
@@ -48,7 +54,7 @@ it.each(['強風（つよいくう）', '11月15日（かんどうつき）', '�
   expect(validateQuality(text, text, 'IN_CLOUD')).toEqual([]);
 });
 it.each(['on_device', 'in_cloud'])('validates scripts for actual %s responses and counts rejected responses', async inferenceSource => {
-  await expect(rewriteWithModel(source, model(source + 'కి', inferenceSource))).rejects.toThrow('unsupported');
+  await expect(rewriteWithModel(source, model(source + 'కి', inferenceSource), undefined, inferenceSource === 'on_device')).rejects.toThrow('unsupported');
   expect(counters[inferenceSource === 'on_device' ? 'ON_DEVICE' : 'IN_CLOUD']).toBe(1);
 });
 
@@ -103,7 +109,7 @@ it('never loops on a failed cloud validation after escalation', async () => {
   expect(factory).toHaveBeenCalledTimes(2);
   expect(counters).toEqual({ ON_DEVICE: 1, IN_CLOUD: 1, UNKNOWN: 0 });
 });
-it.each(['ONLY_IN_CLOUD', 'PREFER_IN_CLOUD', 'PREFER_ON_DEVICE'] as const)('does not retry failed cloud responses in %s', async mode => {
+it.each(['ONLY_IN_CLOUD', 'PREFER_IN_CLOUD'] as const)('does not retry failed cloud responses in %s', async mode => {
   const cloud = model('案内です。', 'in_cloud');
   vi.spyOn(firebase, 'getNoticeModel').mockReturnValue(cloud);
   await expect(rewriteNotice(source, mode)).rejects.toThrow('numbers');
