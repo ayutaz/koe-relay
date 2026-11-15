@@ -1,118 +1,110 @@
-# Koe Relay (draft)
+# Koe Relay
 
-Turn a Japanese notice into easy Japanese and English, then listen in your browser.
-A Vite + TypeScript prototype for #BuildHybridAI 2026, with no UI framework.
+Koe Relay turns Japanese public notices into easy Japanese, plain English and optional translations, then reads Japanese and English aloud locally. Built with TypeScript, Firebase AI Logic and piper-plus for #BuildHybridAI 2026.
 
-Phase 0 implements the Firebase AI Logic integration, structured notice output,
-inference counters, and local piper-plus speech. **No Firebase project was used
-for Phase 0 verification.** Live rewriting and App Check enforcement remain unverified.
-Japanese and English browser speech have passed automated playback checks;
-human listening review is still needed. See [the Phase 0 report](docs/phase0.md).
+Hosted demo URL: **https://ayutaz.github.io/koe-relay/**. The Pages workflow is implemented; deployment and hosted App Check still require verification. See [Phase 1 evidence and configuration](docs/phase1.md).
 
-## Run locally
+## How hybrid inference works
 
-Requires Node.js 24+ and npm. Use desktop Chrome for speech and on-device AI checks.
+The app imports and calls `firebase/ai`: `getAI`, `GoogleAIBackend`, `getGenerativeModel` and `generateContent`. Gemini Nano handles supported on-device requests; `gemini-3.8-flash` handles cloud requests through Firebase AI Logic and the Gemini Developer API. The project uses Spark with no billing. Free-tier quotas can temporarily prevent cloud requests.
+
+| Mode | Behavior |
+| --- | --- |
+| `PREFER_ON_DEVICE` | Prefer Nano; cloud is permitted when needed. |
+| `ONLY_ON_DEVICE` | Keep rewriting on the device; fail if unavailable. |
+| `PREFER_IN_CLOUD` | Prefer cloud; allow a supported device fallback. |
+| `ONLY_IN_CLOUD` | Use cloud; fail without connectivity. |
+
+Japanese and English are always included. Chinese and Portuguese **require cloud**; either PREFER mode routes those requests to `ONLY_IN_CLOUD`. Spanish and French can also be attempted on compatible devices using language-specific Prompt API declarations. All four extra languages are text output only. Preparing a device model is separate from generating a response.
+
+The displayed badge comes from **`result.response.inferenceSource`**, never the selected mode. `ON_DEVICE`, `IN_CLOUD` and Unknown counters count SDK responses, including responses rejected by validation. Failed requests before a response do not count. Counters reset on reload.
+
+The prompt retains kanji, requests reliable readings (for example, 強風（きょうふう）), and preserves original numbers, dates, times and place names. Runtime checks reject the observed reading/typing errors and number/time changes; missing recognizable place names produce a visible review warning. These checks are partial safeguards, not proof of factual accuracy. Always compare the rewrite with the original notice.
+
+## Try the hosted app — judge instructions
+
+1. Open the hosted URL above in desktop Chrome. No application account is required.
+2. Choose **Train suspension sample** or **Shelter opening sample**. Both are fictional.
+3. Select `ONLY_IN_CLOUD` and **Rewrite notice**. Confirm an actual `IN_CLOUD` badge and counter, then review numbers, times, places, restrictions and uncertainty against the source.
+4. Try an additional output language. Chinese and Portuguese explicitly require cloud. Speech buttons remain Japanese and English only.
+5. Select **Load speech model**, then test both voices. Allow roughly 140 MB of uncompressed offline assets. Read the voice usage terms displayed in the app.
+6. Wait for **App and Japanese / English speech saved for offline use**. Disconnect the network and reload. Confirm **Offline**, try both voice tests again, and select samples. Browsers can evict stored assets; a readiness message is not a permanent storage guarantee.
+7. On a compatible desktop Chrome with the Prompt API available, select Japanese + English, choose `ONLY_ON_DEVICE`, and click **Prepare on-device AI** while online. Then rewrite and verify actual `ON_DEVICE` output. Prepare again after selecting Spanish or French before testing those combinations. Nano support and quality depend on the device. The current [Chrome Prompt API requirements](https://developer.chrome.com/docs/ai/prompt-api) apply; an older Chrome version number alone is insufficient.
+8. With Nano prepared, disconnect and try an on-device rewrite. If Nano is unavailable, the app shows an error and retains the original notice. It does not fabricate an offline translation.
+
+Cloud-capable modes may send notices to Google. Use fictional or non-sensitive notices for judging. Production attestation uses reCAPTCHA Enterprise on `ayutaz.github.io`; judges do not need a debug token. A blocked request can reflect attestation, connectivity or free-tier quota; check the displayed error and try later if quota-limited.
+
+## Local setup
+
+Requires Node.js 24+, npm and Google Chrome for browser tests.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite. Without environment values the app displays
-**Firebase not configured**, disables AI actions, and still allows sample selection
-and real speech tests. No Firebase service initializes on page load.
+Open the printed URL with the `/koe-relay/` path. Without configuration, the app shows **Firebase not configured** and disables rewriting; samples and speech remain usable.
 
-Choose **Load speech model**, then **Test Japanese voice** or **Test English voice**.
-The first use downloads one shared multilingual voice (39.65 MB) from Hugging Face,
-plus local WASM and dictionary assets. Speech text stays in the browser.
-The initial speech assets total roughly 121 MB before HTTP compression.
-Initial download and initialization took 9.78 seconds in one local test; this is
-not a speed guarantee. This phase does not yet provide offline app/model caching.
+Use `.env.example` as a template. Set the six `VITE_FIREBASE_*` public web configuration fields and `VITE_RECAPTCHA_ENTERPRISE_SITE_KEY` in an ignored local environment file. Enable Firebase AI Logic with the Gemini Developer API and App Check with reCAPTCHA Enterprise. Restart Vite after configuration changes. Client web config and the site key are public; never use service-account credentials or a server secret.
 
-## Configure Firebase later
+For local development, privately register an App Check debug token and set `VITE_APPCHECK_DEBUG_TOKEN` only in ignored `.env.development.local`. It is used only under `import.meta.env.DEV`. Never print, commit or share this file or token. Do not allow localhost on the production reCAPTCHA key. Production builds omit the app's debug-token assignment.
 
-After a project exists, copy `.env.example` to `.env.local` and fill all seven values.
-Use Firebase's public Web app configuration and the **reCAPTCHA Enterprise site
-key**, never a server secret or service account. `VITE_*` values are bundled into
-the client and are publicly readable. Restart Vite after changing environment values.
+Remote Config fetches `default_inference_mode` and `enabled_languages` on startup with safe defaults and previously activated settings when available. A saved user mode wins. Parameter formats and REST template examples are in [Phase 1](docs/phase1.md#remote-config).
 
-Enable Firebase AI Logic with the Gemini Developer API backend and register the
-Web app with App Check using reCAPTCHA Enterprise. In development, the app enables
-App Check's debug flag before initialization. Register the generated debug token
-privately in the Firebase console; never commit or share it. Do not add localhost
-to the production reCAPTCHA allowed domains. Production builds omit the debug flag
-and need a registered production domain. See [human setup tasks](HUMAN_TODO.md).
+## Offline behavior
 
-1. Paste a short Japanese notice or choose either fictional sample.
-2. Select an inference mode (defaults to `PREFER_ON_DEVICE`, remembered locally).
-3. Choose **Prepare on-device AI** from a user click to download/initialize Gemini Nano.
-4. Choose **Rewrite notice**. Review the summary, actions, place/time, easy Japanese,
-   and English against the original before using the result.
-5. Read the `ON_DEVICE` / `IN_CLOUD` badge and session counters, then use the Speak buttons.
+The production Service Worker precaches the app shell, all bundled JavaScript/dictionaries, piper-plus phonemizer and ONNX runtime. Loading the voice or choosing **Save speech for offline use** caches the revision-pinned voice and config. Japanese and English share the same weights. The worker handles piper-plus's companion-config probe using the pinned sibling config.
 
-Hybrid modes may send the notice to Google through Firebase AI Logic. Choose
-`ONLY_ON_DEVICE` to prohibit cloud inference; unsupported devices will fail rather
-than silently send the notice to the cloud. The UI explains the selected policy.
-Counters count returned SDK responses, including malformed output; failed requests
-do not increment them. A missing inference source is counted as Unknown.
+The UI shows cache readiness separately from Online/Offline. `navigator.onLine` is a browser connectivity hint; it cannot guarantee internet access. When offline, supported PREFER requests use `ONLY_ON_DEVICE`, and cloud-only requests are disabled. Nano downloads are managed separately by Chrome. Notices and inference responses are not stored by the Service Worker. Clearing site data or browser storage eviction removes offline capability. Development mode intentionally does not register the worker; use a production preview to test offline operation.
 
-## Build and verify
+## Build and test
 
 ```sh
-npm run build
 npm test
-npm run test:browser
+npm run build
+node scripts/check-production.mjs
 npm run preview
 ```
 
-The browser suite uses an installed Google Chrome. The default suite checks the
-production app without configuration and exercises synthetic SDK responses in a
-separate local dev server. These tests never call Firebase. Real speech testing is
-opt-in because it downloads large public model files. In PowerShell:
+Preview: `http://127.0.0.1:4173/koe-relay/`. Browser tests require a configuration-free build, isolated from real environment files:
 
 ```powershell
+$env:KOE_RELAY_TEST = '1'
+npm run build
+npm run test:browser
+# Optional real voice download and online/offline playback; no Firebase inference:
 $env:RUN_TTS = '1'
 npm run test:browser
+Remove-Item Env:RUN_TTS, Env:KOE_RELAY_TEST -ErrorAction SilentlyContinue
 ```
 
-For restricted workspaces, keep npm/browser temporary files inside the repository:
+The default suite verifies safe UI rendering, mocked inference/source counters, language routing, Remote Config UI behavior, failure recovery, and offline shell/runtime delivery with synthetic model bytes. The opt-in test downloads the actual voice, synthesizes both languages, disables HTTP cache, disconnects, reloads and synthesizes both again. Audio buffers must be finite and non-silent. This is automated synthesis evidence, not human pronunciation review or real Nano/cloud accuracy evidence.
 
-```powershell
-$env:npm_config_cache = Join-Path $PWD '.cache/npm'
-$env:TEMP = Join-Path $PWD '.cache/tmp'
-$env:TMP = $env:TEMP
-New-Item -ItemType Directory -Force $env:TEMP | Out-Null
-```
+`npm run build` type-checks TypeScript. `predev` / `prebuild` copy pinned installed WASM assets to ignored `public/vendor/`. Build output and artifacts stay ignored. Upstream dictionary-chunk and optional Chinese-loader URL warnings currently remain. See [Phase 0](docs/phase0.md) for original dependency and speech measurements, and Phase 1 for updated limits.
 
-`predev` and `prebuild` copy the installed piper-plus WASM and ONNX Runtime assets
-into ignored `public/vendor/`; they do not download models. `dist/` is the static
-output; relative asset URLs support a future GitHub Pages repository path.
-No site was published or pushed. Full offline reload, service worker caching,
-Remote Config, additional UI languages, and public deployment are later work.
+## GitHub Pages setup
+
+The workflow builds/tests on push to `main` and deploys only `dist/` using the Pages artifact/deploy actions. The Vite base and worker scope support `/koe-relay/`.
+
+Set Pages' publishing source to **GitHub Actions** on the intended `ayutaz/koe-relay` repository and provide these repository **variables**:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_RECAPTCHA_ENTERPRISE_SITE_KEY`
+
+The workflow deliberately does not read a debug-token variable. Hosted builds fail if public configuration is missing. No push or deployment was performed during this implementation. The manager must complete the existing repository-publication review before publishing.
 
 ## License and credits
 
-Application code: [Apache-2.0](LICENSE). Third-party software, voice weights, and
-generated voice are governed separately:
+Application code: [Apache-2.0](LICENSE). Third-party software, voice weights and generated voice have separate terms:
 
 - [Firebase JS SDK](https://github.com/firebase/firebase-js-sdk): Apache-2.0.
-- [piper-plus](https://github.com/ayutaz/piper-plus) `0.9.1`,
-  [@piper-plus/g2p](https://github.com/ayutaz/piper-plus/tree/dev/src/wasm/g2p),
-  and [ONNX Runtime](https://github.com/microsoft/onnxruntime): MIT. Bundled
-  dictionaries also have their own notices, copied into the built vendor directory.
-- **Piper Plus:つくよみちゃん** — [Piper Plus Tsukuyomi-chan model](https://huggingface.co/ayousanz/piper-plus-tsukuyomi-chan),
-  pinned revision `619ad26fcbd5635b3d70a27eac919f4c2ce892b1`, root FP16 multilingual model.
-  Its legacy base is CC BY 4.0; the voice also follows the
-  [Tsukuyomi-chan corpus terms](https://tyc.rei-yumesaki.net/material/corpus/#terms3).
-  It is not covered by the application's Apache license.
-- Voice data: Tsukuyomi-chan corpus, CV. Rei Yumesaki (© Rei Yumesaki).
-  This is an unofficial work. Rei Yumesaki does not develop or support this app/model;
-  direct inquiries to the Piper Plus developer. Model and voice data are not checked into this repo.
+- [piper-plus](https://github.com/ayutaz/piper-plus) `0.9.1`, [@piper-plus/g2p](https://github.com/ayutaz/piper-plus/tree/dev/src/wasm/g2p), and [ONNX Runtime](https://github.com/microsoft/onnxruntime): MIT. Bundled dictionaries carry their own notices, copied into the built vendor directory.
+- **Piper Plus:つくよみちゃん** — [Tsukuyomi-chan model and terms](https://huggingface.co/ayousanz/piper-plus-tsukuyomi-chan), revision `619ad26fcbd5635b3d70a27eac919f4c2ce892b1`, root FP16 multilingual model. Its legacy base is CC BY 4.0; the voice also follows the [Tsukuyomi-chan corpus terms](https://tyc.rei-yumesaki.net/material/corpus/#terms3). It is not covered by the application's Apache license.
+- Voice data: Tsukuyomi-chan corpus, voice: Rei Yumesaki (© Rei Yumesaki). This is an unofficial work. Rei Yumesaki does not develop or support this app/model. Direct inquiries to the [Piper Plus developer](https://github.com/ayutaz/piper-plus/issues).
 
-Credit **Piper Plus:つくよみちゃん** when sharing generated audio, including video
-descriptions. Follow the linked model/corpus restrictions: no attacking people,
-political/religious/ideological advocacy, intense material without audience
-separation, or redistribution of generated audio for reuse as raw material.
-Corpus-derived components retain the corpus terms when modified or redistributed.
-The app displays voice attribution and a plain English summary of these conditions.
-Review the official display template before public release; Phase 0 is local only.
+As shown in the app: credit **Piper Plus:つくよみちゃん** when sharing audio, including video descriptions. Generated audio must not attack people, advocate for or against political, religious or ideological positions, publish intense content without appropriate audience separation, or be offered for reuse as raw material. Corpus-derived components retain corpus terms when modified or redistributed. Read the linked official terms before sharing audio.
