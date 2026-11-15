@@ -4,3 +4,10 @@ dist/
 .env.local
 .firebase/
 *.log
+.cache/
+.artifacts/
+.env.*
+!.env.example
+public/vendor/
+test-results/
+playwright-report/
