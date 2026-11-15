@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { GenerativeModel } from 'firebase/ai';
 import * as firebase from './firebase';
-import { buildOnDevicePrompt, buildPrompt, counters, hasUnsupportedScript, rewriteNotice, rewriteWithModel, sourceFactTokens, validateQuality } from './rewrite';
+import { buildOnDevicePrompt, buildPrompt, counters, hasUnsupportedScript, rewriteNotice, rewriteWithModel, sourceFactTokens, sourceMustKeep, validateQuality } from './rewrite';
 import { samples } from './ui/samples';
 
 const source = '11月15日午後3時、ひかり市民センターの1階に来てください。';
@@ -12,14 +12,19 @@ function model(easyJapanese = source, inferenceSource = 'on_device') {
 beforeEach(() => { counters.ON_DEVICE = counters.IN_CLOUD = counters.UNKNOWN = 0; vi.stubGlobal('navigator', { onLine: true }); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it('quotes source dates, times, floors and places in the device prompt', () => {
+  expect(sourceMustKeep('【架空の案内】大雨のため、11月15日午後6時に、ひかり市民センターの1階に避難所を開きます。')).toEqual(['11月', '15日', '午後6時', '1階', 'ひかり市民センター']);
+  expect(sourceMustKeep('3番出口 2:30')).toEqual(['3', '2:30']);
+});
+
 it('builds a shorter device prompt with exact extracted fact tokens and no reading example', () => {
   expect(sourceFactTokens(source)).toEqual(['11月', '15日', '午後3時', '1階', '11', '15', '3', '1']);
   expect(sourceFactTokens('２０２６年十一月十五日 午後３時 １階 3:30 3:30')).toEqual(['２０２６年', '十一月', '十五日', '午後３時', '１階', '２０２６', '３', '１', '3:30']);
   for (const text of [source, ...Object.values(samples)]) {
     const prompt = buildOnDevicePrompt(text, 'fr');
-    expect(prompt).toContain('Do NOT add parenthetical readings');
-    expect(prompt).toContain('Use short sentences');
-    expect(prompt).toContain('must appear verbatim in easyJapanese and in time/place where relevant: ' + JSON.stringify(sourceFactTokens(text)));
+    expect(prompt).toContain('Do NOT add readings in parentheses');
+    expect(prompt).toContain('one short, easy Japanese sentence');
+    for (const phrase of sourceMustKeep(text)) expect(prompt).toContain(`「${phrase}」`);
     expect(prompt).toContain('French');
     expect(prompt).not.toContain('図書館（としょかん）');
     expect(prompt.length).toBeLessThan(buildPrompt(text, 'fr', false).length);

@@ -19,9 +19,9 @@ Post-change real Nano generation and human quality review have **not** been repe
 
 | Check | Result |
 | --- | --- |
-| `KOE_RELAY_TEST=1 npm test` | **104 passed**, 6 test files. Includes mocked model escalation, source/counter semantics, bounded device retries, script checks and prompt tests. |
+| `KOE_RELAY_TEST=1 npm test` | **107 passed**, 6 test files. Includes mocked model escalation, source/counter semantics, bounded device retries, script checks and prompt tests. |
 | `KOE_RELAY_TEST=1 npm run build` | Passed TypeScript checking and the isolated Vite production build. Existing optional-loader URL and large dictionary-chunk warnings remain. |
-| `KOE_RELAY_TEST=1 npm run test:browser` | **14 passed, 1 skipped**, 20.3 seconds. Includes visible cloud escalation/reason, final `IN_CLOUD` badge, both counters, failed cloud retry, and three-attempt device limits online/offline. The skipped opt-in real-speech test requires `RUN_TTS=1`; speech code was unchanged. |
+| `KOE_RELAY_TEST=1 npm run test:browser` | **14 passed, 1 skipped**, 19.6 seconds. Includes visible cloud escalation/reason, final `IN_CLOUD` badge, both counters, failed cloud retry, and three-attempt device limits online/offline. The skipped opt-in real-speech test requires `RUN_TTS=1`; speech code was unchanged. |
 | `node scripts/check-production.mjs` | Passed on the isolated build. |
 | `git diff --check` | Passed. |
 
