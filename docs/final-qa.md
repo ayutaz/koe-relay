@@ -13,7 +13,16 @@ The author supplied subsequent real **Chrome 157**, **Firebase AI Logic `ONLY_ON
 
 Local changes add a compact device prompt forbidding readings and listing source fact tokens verbatim, retaining JSON `responseConstraint` and a conservative prompt budget. Both paths reject unsupported scripts in `easyJapanese`; device readings are rejected without modifying the response. Online `PREFER_ON_DEVICE` validation failures rerun once in cloud `gemini-3.5-flash-lite`, with an explicit reason line, actual response-source badge and both counters incremented. Offline or `ONLY_ON_DEVICE` validation failures allow at most two further device attempts. Ordinary cloud-first prompts/routing remain unchanged; SDK availability fallback for a device-first request shares its compact prompt.
 
-Post-change real Nano generation and human quality review have **not** been repeated in this implementation pass. The added tests verify prompts, validation, model selection, retry limits, UI messages and counters with mocks; they do not establish semantic accuracy, correct pronunciation or a higher Nano success rate. The earlier QA results below remain historical, not measurements of this patch.
+### Real Nano after the prompt change (2026-11-15)
+
+Measured in Chrome 157 with Gemini Nano downloaded, against the deployed GitHub Pages build (bundle confirmed to contain the new prompt), Inference mode `ONLY_ON_DEVICE`, two fictional samples × 3 rewrites:
+
+| Prompt | Runs passing all checks | Notes |
+| --- | --- | --- |
+| Compact prompt, "short sentences" + fact token list | 2 of 6 in-app results (each allowing 3 device attempts) | Shelter notice repeatedly lost `11月15日午後6時` and `ひかり市民センターの1階` |
+| One easy sentence per source sentence + quoted phrases (current) | **6 of 6** | All dates, times, floors, stations and places kept; no parenthetical readings; one run dropped the closing sentence; output stays close to the source wording |
+
+A direct Chrome Prompt API comparison with the same schema (4 runs per sample and variant) gave 8 of 8 for each sentence-by-sentence variant. These are small samples on two notices, not a benchmark. Easier wording with readings comes from the cloud path.
 
 ### Local verification of this quality change
 
