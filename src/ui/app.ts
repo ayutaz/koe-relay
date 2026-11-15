@@ -23,12 +23,12 @@ export function mountApp(root: HTMLElement): void {
         <section class="card input-card" aria-labelledby="input-heading">
           <div class="section-top"><span class="step">01 / INPUT</span><span class="tag">Japanese → clear words</span></div>
           <h2 id="input-heading">Start with a notice</h2><label for="notice">Japanese notice</label>
-          <textarea id="notice" lang="ja" rows="7" maxlength="4000" spellcheck="false"></textarea>
-          <div class="input-meta"><span>Fictional samples for testing only</span><span id="character-count"></span></div>
+          <textarea id="notice" lang="ja" rows="7" maxlength="4000" spellcheck="false" aria-describedby="notice-help character-count"></textarea>
+          <div class="input-meta"><span id="notice-help">Fictional samples for testing only</span><span id="character-count"></span></div>
           <div class="sample-buttons"><button id="sample-train" class="secondary">Train suspension sample</button><button id="sample-shelter" class="secondary">Shelter opening sample</button></div>
-          <label for="mode">Inference mode</label><select id="mode">${modes.map(mode => `<option value="${mode}">${mode}</option>`).join('')}</select>
+          <label for="mode">Inference mode</label><select id="mode" aria-describedby="mode-help">${modes.map(mode => `<option value="${mode}">${mode}</option>`).join('')}</select>
           <p id="mode-help" class="hint"></p>
-          <label for="extra-language">Additional output language</label><select id="extra-language"><option value="">Japanese + English only</option>${extraLanguages.map(code => `<option value="${code}">${languages[code].label} · ${languages[code].onDevice ? 'cloud / compatible devices' : 'cloud required'}</option>`).join('')}</select>
+          <label for="extra-language">Additional output language</label><select id="extra-language" aria-describedby="language-help"><option value="">Japanese + English only</option>${extraLanguages.map(code => `<option value="${code}">${languages[code].label} · ${languages[code].onDevice ? 'cloud / compatible devices' : 'cloud required'}</option>`).join('')}</select>
           <p id="language-help" class="hint"></p>
           <div class="action-row"><button id="rewrite" class="primary">Rewrite notice <span aria-hidden="true">↗</span></button><button id="retry" class="secondary" hidden>Retry rewrite</button><button id="download" class="secondary">Prepare on-device AI</button></div>
           <progress id="download-progress" max="1" value="0" hidden aria-label="AI model download progress"></progress>
@@ -50,7 +50,7 @@ export function mountApp(root: HTMLElement): void {
       </div>
       <section class="speech-panel" aria-labelledby="speech-heading"><div><span class="step">03 / LISTEN LOCALLY</span><h2 id="speech-heading">A voice that stays on your device</h2><p>Japanese and English speech is made in your browser. The app saves its shell and runtime after the first load; load or save the shared voice while online before using speech offline.</p></div><div class="speech-controls"><button id="load-voice" class="secondary">Load speech model</button><button id="save-offline" class="secondary">Save speech for offline use</button><button id="test-ja" class="secondary">Test Japanese voice</button><button id="test-en" class="secondary">Test English voice</button></div><p id="speech-message" class="message" role="status" aria-live="polite">Voice not loaded. Offline assets total about 140 MB uncompressed; download speed varies.</p></section>
       <section class="voice-terms" aria-label="Voice credits and usage terms"><h2>Voice credits & use</h2><p><strong>Piper Plus:つくよみちゃん</strong> · An unofficial voice using the Tsukuyomi-chan corpus (voice: Rei Yumesaki, © Rei Yumesaki). Rei Yumesaki does not develop or support this app or model.</p><p>Generated audio must not attack people, advocate for or against political, religious, or ideological positions, publish intense content without appropriate audience separation, or be offered for reuse as raw material. Credit “Piper Plus:つくよみちゃん” when sharing audio, including in video descriptions.</p><p>Read the <a href="https://huggingface.co/ayousanz/piper-plus-tsukuyomi-chan">model terms</a> and <a href="https://tyc.rei-yumesaki.net/material/corpus/#terms3">corpus terms</a>. Inquiries belong with the <a href="https://github.com/ayutaz/piper-plus/issues">Piper Plus developer</a>.</p></section>
-    </main><footer>Built for #BuildHybridAI 2026 · Apache-2.0 <span>Fictional notices · Verify AI output against the original</span></footer>`;
+    </main><footer><span>Built for #BuildHybridAI 2026 · <a href="https://github.com/ayutaz/koe-relay/blob/main/LICENSE">Apache-2.0 license</a></span><span>Verify AI output against the original notice</span></footer>`;
 
   const el = <T extends HTMLElement = HTMLElement>(id: string) => root.querySelector<T>(`#${id}`)!;
   const input = el<HTMLTextAreaElement>('notice');
