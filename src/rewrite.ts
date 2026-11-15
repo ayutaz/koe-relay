@@ -75,7 +75,7 @@ export function parseNotice(text: string, language?: ExtraLanguage): Notice {
 export function validateQuality(source: string, output: string, inferenceSource?: Source | null): string[] {
   if (hasUnsupportedScript(output)) throw new Error('The Japanese rewrite contains unsupported characters or scripts. Compare with the original and try again.');
   if (inferenceSource === 'ON_DEVICE' && hasParentheticalReadings(output)) throw new Error('Unreliable on-device readings: easyJapanese must not contain parenthetical readings.');
-  if (/くだだい|くだささい|しててください/.test(output)) throw new Error('Possible Japanese typo detected. Compare with the original and try rewriting again.');
+  if (/くだだい|くだささい|しててください|てくだい/.test(output)) throw new Error('Possible Japanese typo detected. Compare with the original and try rewriting again.');
   const numbers = (text: string) => [...new Set(text.match(numberPattern) ?? [])].sort();
   if (JSON.stringify(numbers(source)) !== JSON.stringify(numbers(output))) throw new Error('The Japanese rewrite changed or omitted source numbers. Check the original and try again.');
   const times = source.match(timePattern) ?? [];

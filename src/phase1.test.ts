@@ -17,6 +17,8 @@ it('routes unsupported device languages to cloud without violating ONLY_ON_DEVIC
 
 it('rejects the observed typo without silently editing model output', () => {
   expect(() => validateQuality('強風です。', '強風（きょうふう）です。みてくだだい。')).toThrow('typo');
+  expect(() => validateQuality('薬を持って来てください。', '薬を持って来てくだい。')).toThrow('typo');
+  expect(validateQuality('薬を持って来てください。', '薬を持って来てください。')).toEqual([]);
   expect(validateQuality('強風です。', '強風（きょうふう）です。確認してください。')).toEqual([]);
   // A particle before a facility word is not part of a place name.
   expect(validateQuality('ひかり市民センターの1階に避難所を開設します。', 'ひかり市民センターの1階（いっかい）に避難所（ひなんじょ）を開きます。')).toEqual([]);
