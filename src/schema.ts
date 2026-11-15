@@ -1,6 +1,7 @@
 import { Schema } from 'firebase/ai';
+import type { ExtraLanguage } from './languages';
 
-export const noticeSchema = Schema.object({
+export function makeNoticeSchema(language?: ExtraLanguage) { return Schema.object({
   properties: {
     summary: Schema.string(),
     actions: Schema.array({ items: Schema.string() }),
@@ -8,5 +9,8 @@ export const noticeSchema = Schema.object({
     time: Schema.string(),
     easyJapanese: Schema.string(),
     english: Schema.string(),
+    ...(language ? { translation: Schema.string() } : {}),
   },
-});
+}); }
+
+export const noticeSchema = makeNoticeSchema();
