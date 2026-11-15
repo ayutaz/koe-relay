@@ -50,9 +50,10 @@ export function getFirebaseApp(): FirebaseApp {
 }
 
 // AI and App Check wait for an AI action. Remote Config shares only the Firebase app.
-export function getNoticeModel(mode: Mode, language?: ExtraLanguage): GenerativeModel {
+export function getNoticeModel(mode: Mode, language?: ExtraLanguage, cloudModelOverride?: string): GenerativeModel {
   if (!firebaseConfigured) throw new Error('Firebase not configured');
-  const cacheKey = `${mode}:${language ?? ''}`;
+  const selectedCloudModel = cloudModelOverride ? parseCloudModel(cloudModelOverride) : cloudModel;
+  const cacheKey = `${mode}:${language ?? ''}:${selectedCloudModel}`;
   const existing = models.get(cacheKey);
   if (existing) return existing;
   if (!ai) {
@@ -71,7 +72,7 @@ export function getNoticeModel(mode: Mode, language?: ExtraLanguage): Generative
   const model = getGenerativeModel(ai, {
     mode: InferenceMode[mode],
     inCloudParams: {
-      model: cloudModel,
+      model: selectedCloudModel,
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: noticeSchema,

@@ -8,17 +8,16 @@ Koe Relay helps people who find Japanese public notices difficult to read: paste
 
 Firebase AI Logic is part of the interactive rewrite path, not just a dependency:
 
-- [`src/firebase.ts:4`](https://github.com/ayutaz/koe-relay/blob/main/src/firebase.ts#L4) imports `getAI`, `GoogleAIBackend`, `getGenerativeModel` and `InferenceMode` from `firebase/ai`.
-- [`src/firebase.ts:64`](https://github.com/ayutaz/koe-relay/blob/main/src/firebase.ts#L64) initializes App Check with `ReCaptchaEnterpriseProvider`, then `getAI(app, { backend: new GoogleAIBackend() })`.
-- [`src/firebase.ts:71`](https://github.com/ayutaz/koe-relay/blob/main/src/firebase.ts#L71) creates the model with `mode: InferenceMode[mode]`, cloud JSON schema settings and on-device Japanese/English language declarations. [`src/firebase.ts:92`](https://github.com/ayutaz/koe-relay/blob/main/src/firebase.ts#L92) prepares Nano through the SDK's `initializeDeviceModel` when the user clicks the preparation button.
-- **Rewrite notice** calls `rewriteNotice`, then [`src/rewrite.ts:85`](https://github.com/ayutaz/koe-relay/blob/main/src/rewrite.ts#L85) actually invokes `model.generateContent(prompt, { signal })`. [`src/rewrite.ts:89`](https://github.com/ayutaz/koe-relay/blob/main/src/rewrite.ts#L89) reads `result.response.inferenceSource` and updates the source counter before parsing and validating the returned JSON.
+- [`src/firebase.ts`](src/firebase.ts) imports `getAI`, `GoogleAIBackend`, `getGenerativeModel` and `InferenceMode` from `firebase/ai`, initializes App Check with `ReCaptchaEnterpriseProvider`, then calls `getAI(app, { backend: new GoogleAIBackend() })`.
+- It creates the model with `mode: InferenceMode[mode]`, cloud JSON schema settings and on-device language declarations plus JSON `responseConstraint`. The preparation button calls the SDK's `initializeDeviceModel`.
+- **Rewrite notice** calls [`rewriteNotice`](src/rewrite.ts), which invokes `model.generateContent(prompt, { signal })`, reads `result.response.inferenceSource` and updates the source counter before parsing and validating the returned JSON.
 
 Gemini Nano handles supported on-device requests through Firebase AI Logic's Chrome Prompt API integration. The cloud default is **`gemini-3.5-flash-lite`**, defined in [`src/settings.ts`](src/settings.ts); Remote Config's `cloud_model` can override it. Cloud requests use Firebase AI Logic and the Gemini Developer API. The project owner reports Spark with no billing; this QA did not inspect the billing console. Free-tier quotas can temporarily prevent requests. See [Firebase's hybrid configuration documentation](https://firebase.google.com/docs/ai-logic/hybrid/web/configuration-options).
 
 | Mode | Behavior |
 | --- | --- |
-| `PREFER_ON_DEVICE` | Prefer Nano; cloud is permitted when needed. |
-| `ONLY_ON_DEVICE` | Keep rewriting on the device; fail if unavailable. |
+| `PREFER_ON_DEVICE` | Prefer Nano; SDK availability fallback permits cloud. A rejected device response triggers one cloud rerun while online. Offline, retry device validation up to twice. |
+| `ONLY_ON_DEVICE` | Keep rewriting on the device; retry validation up to twice, then fail. Fail if unavailable. |
 | `PREFER_IN_CLOUD` | Prefer cloud; allow a supported device fallback. |
 | `ONLY_IN_CLOUD` | Use cloud; fail without connectivity. |
 
@@ -26,7 +25,15 @@ Japanese and English are always included. Chinese and Portuguese **require cloud
 
 The displayed badge comes from **`result.response.inferenceSource`**, never the selected mode. `ON_DEVICE`, `IN_CLOUD` and Unknown counters count SDK responses, including responses rejected by validation. Failed requests before a response do not count. Counters reset on reload.
 
-The prompt asks for kanji with readings only when certain, and preservation of original numbers, dates, times and place names. Runtime checks reject a few known Japanese typos and number/time changes; missing recognizable place names produce a visible review warning. These checks are partial safeguards, not proof of correct readings or factual accuracy. Always compare the rewrite with the original notice.
+Device-first requests use a separate compact prompt: short sentences, kanji without parenthetical readings, and source date/time/number/floor tokens extracted with the same regexes as validation. Those tokens must appear verbatim in `easyJapanese` and in `time`/`place` where relevant. A conservative 6,500 UTF-8 byte prompt cap reserves room within Nano's 9,216-token input limit for the schema and SDK framing; it is not a measured tokenizer count. JSON structured output still uses on-device `responseConstraint`. The SDK's availability fallback shares this compact prompt. Cloud-first requests and quality-escalation cloud requests use the existing cloud prompt, which permits readings only when certain.
+
+If an actual `ON_DEVICE` response fails validation in online `PREFER_ON_DEVICE`, the app reruns the same notice/language once through Firebase AI Logic `ONLY_IN_CLOUD` with **`gemini-3.5-flash-lite`**, independent of the ordinary Remote Config model override. The UI displays the reason and “→ re-ran in the cloud.”; the successful response badge shows `IN_CLOUD`, and both responses count. If offline or in `ONLY_ON_DEVICE`, up to two further device attempts are allowed. Cloud validation errors and request failures are not automatically retried. `ONLY_IN_CLOUD` and `PREFER_IN_CLOUD` retain their ordinary routing and cloud prompt.
+
+## Quality guards
+
+Both paths validate JSON shape, known Japanese typos and unchanged number/date/time/floor expressions. A Unicode script allowlist rejects foreign-script contamination in `easyJapanese` (including Telugu, Devanagari and Hangul); Japanese scripts, ASCII and Japanese/full-width forms are allowed. Actual device responses with parenthetical kana readings are rejected as **unreliable on-device readings**; nothing is silently stripped. Missing recognizable place names produce a visible review warning.
+
+Real Chrome 157 / Firebase AI Logic `ONLY_ON_DEVICE` observations supplied by the author on **2026-11-15** covered **8 runs** of the two fictional samples: **6 failed number/date checks**, dropping facts such as `11月15日`, `午後3時` and `1階`. Nano also invented readings such as `強風（つよいくう）` and inserted Telugu characters into a reading. One run passed the checks despite incorrect readings. The author reports correct readings from cloud `gemini-3.5-flash-lite` on these samples. See [the full findings and evidence limits](docs/final-qa.md#real-nano-findings-and-quality-hardening). These observations motivated the guards; they do not demonstrate that the revised device prompt fixes Nano's quality. Checks cannot prove correct readings, meaning or factual accuracy. Always compare with the source.
 
 ## Try it — English testing instructions for judges
 

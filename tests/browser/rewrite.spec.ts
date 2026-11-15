@@ -1,5 +1,79 @@
 import { expect, test } from '@playwright/test';
 
+test('device quality failure visibly escalates once, counts both responses, and clears on input change', async ({ page }) => {
+  await page.route('**/src/firebase.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
+    export const firebaseConfigured = true;
+    export const firebaseStatus = 'Firebase mock (test only)';
+    export function setCloudModel() {}
+    export function getFirebaseApp() { throw new Error('No live Firebase'); }
+    export async function initializeDeviceModel() {}
+    window.modelCalls = [];
+    export function getNoticeModel(mode, language, cloudModel) {
+      window.modelCalls.push({mode, cloudModel});
+      return { async generateContent(prompt) {
+        const cloud = mode === 'ONLY_IN_CLOUD';
+        const original = JSON.parse(prompt.split('NOTICE_JSON: ')[1]);
+        const easyJapanese = cloud ? original + '確認（かくにん）してください。' : original + '未定（みじょう）';
+        return { response: { inferenceSource: cloud ? 'in_cloud' : 'on_device', text: () => JSON.stringify({
+          summary: 'Notice', actions: [], place: 'Not stated', time: 'Not stated', easyJapanese, english: 'Notice.'
+        }) } };
+      } };
+    }
+  ` }));
+  await page.goto('http://127.0.0.1:4174/koe-relay/');
+  await page.getByRole('button', { name: 'Shelter opening sample' }).click();
+  await page.getByRole('button', { name: 'Rewrite notice' }).click();
+  await expect(page.locator('#source')).toHaveText('IN_CLOUD');
+  await expect(page.locator('#device-count')).toHaveText('1');
+  await expect(page.locator('#cloud-count')).toHaveText('1');
+  await expect(page.locator('#escalation-message')).toContainText('Unreliable on-device readings');
+  await expect(page.locator('#escalation-message')).toContainText('→ re-ran in the cloud.');
+  await expect(page.locator('#easy-japanese')).toContainText('確認（かくにん）');
+  await expect(page.locator('#easy-japanese')).not.toContainText('みじょう');
+  expect(await page.evaluate(() => (window as unknown as { modelCalls: unknown[] }).modelCalls)).toEqual([
+    { mode: 'PREFER_ON_DEVICE', cloudModel: undefined },
+    { mode: 'ONLY_IN_CLOUD', cloudModel: 'gemini-3.5-flash-lite' },
+  ]);
+  await page.getByLabel('Japanese notice', { exact: true }).fill('別の案内です。');
+  await expect(page.locator('#escalation-message')).toBeHidden();
+});
+
+for (const offline of [false, true]) {
+  test(`device validation retries stop after three responses (offline=${offline})`, async ({ page }) => {
+    await page.route('**/src/firebase.ts', route => route.fulfill({ contentType: 'text/javascript', body: `
+      export const firebaseConfigured = true;
+      export const firebaseStatus = 'Firebase mock (test only)';
+      export function setCloudModel() {}
+      export function getFirebaseApp() { throw new Error('No live Firebase'); }
+      export async function initializeDeviceModel() {}
+      window.modelCalls = [];
+      export function getNoticeModel(mode) {
+        window.modelCalls.push(mode);
+        return { async generateContent() {
+          return { response: { inferenceSource: 'on_device', text: () => JSON.stringify({
+            summary: 'Notice', actions: [], place: 'Not stated', time: 'Not stated', easyJapanese: '未定（みじょう）', english: 'Notice.'
+          }) } };
+        } };
+      }
+    ` }));
+    await page.goto('http://127.0.0.1:4174/koe-relay/');
+    if (offline) await page.evaluate(() => {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+      window.dispatchEvent(new Event('offline'));
+    });
+    else await page.getByLabel('Inference mode').selectOption('ONLY_ON_DEVICE');
+    await page.getByRole('button', { name: 'Rewrite notice' }).click();
+    await expect(page.locator('#source')).toHaveText('NO VALID RESULT');
+    await expect(page.locator('#device-count')).toHaveText('3');
+    await expect(page.locator('#cloud-count')).toHaveText('0');
+    await expect(page.locator('#ai-message')).toContainText('Unreliable on-device readings');
+    await expect(page.locator('#escalation-message')).toBeHidden();
+    await expect(page.locator('#result')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Retry rewrite' })).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { modelCalls: string[] }).modelCalls)).toEqual(['ONLY_ON_DEVICE', 'ONLY_ON_DEVICE', 'ONLY_ON_DEVICE']);
+  });
+}
+
 test('mocked SDK results render safely, count the reported source, and clear stale output', async ({ page }) => {
   // Mock only in the test browser. This fixture is never part of dist, and cannot call Firebase.
   const firebaseRequests: string[] = [];
@@ -18,7 +92,7 @@ test('mocked SDK results render safely, count the reported source, and clear sta
           calls++;
           const data = { summary: '<img src=x onerror=alert(1)>', actions: ['Check the notice.'], place: 'Aoba', time: 'Unknown', easyJapanese: '電車は止まっています。', english: 'Trains are suspended.' };
           data.easyJapanese = JSON.parse(prompt.split('NOTICE_JSON: ')[1]);
-          return {response: {inferenceSource: calls === 1 ? 'in_cloud' : 'on_device', text: () => calls === 3 ? '{}' : JSON.stringify(data)}};
+          return {response: {inferenceSource: calls === 1 || calls >= 4 ? 'in_cloud' : 'on_device', text: () => calls >= 3 ? '{}' : JSON.stringify(data)}};
         }};
       }
       export async function initializeDeviceModel(mode, callback) { callback(0.25); callback(1); }`,
@@ -46,6 +120,8 @@ test('mocked SDK results render safely, count the reported source, and clear sta
   await expect(page.locator('#result')).toBeHidden();
   await expect(page.locator('#source')).toHaveText('NO VALID RESULT');
   await expect(page.locator('#device-count')).toHaveText('2');
+  await expect(page.locator('#cloud-count')).toHaveText('2');
+  await expect(page.locator('#escalation-message')).toContainText('cloud retry failed');
   await expect(page.getByRole('button', { name: 'Rewrite notice' })).toBeEnabled();
   await page.getByLabel('Japanese notice', { exact: true }).fill('');
   await expect(page.getByRole('button', { name: 'Rewrite notice' })).toBeDisabled();

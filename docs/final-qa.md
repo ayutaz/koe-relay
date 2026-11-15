@@ -1,8 +1,33 @@
 # Final submission QA
 
-Checked **2026-11-15 (Asia/Tokyo)** against the #BuildHybridAI 2026 requirements supplied by the author. Scope: this public repository and its existing [GitHub Pages deployment](https://ayutaz.github.io/koe-relay/). No push, deployment, remote configuration change or commit was made. This session exposes `.git` as read-only. No environment-file contents or private App Check token values were printed or copied into this report.
+Checked **2026-11-15 (Asia/Tokyo)** against the #BuildHybridAI 2026 requirements supplied by the author. Scope: this public repository and its existing [GitHub Pages deployment](https://ayutaz.github.io/koe-relay/). The original QA record below is supplemented by the later Nano findings and local quality-hardening verification. No push, deployment, remote configuration change or commit was made. This session exposes `.git` as read-only. No environment-file contents or private App Check token values were printed or copied into this report.
 
-## Commands and results
+## Real Nano findings and quality hardening
+
+The author supplied subsequent real **Chrome 157**, **Firebase AI Logic `ONLY_ON_DEVICE`** results on **2026-11-15** for the two fictional samples, **8 runs** total. This is author-supplied runtime evidence, distinct from the earlier headless availability check and this change's mocked regression tests.
+
+- **6 of 8 runs failed the existing number/date checks**, because Nano dropped source facts such as `11月15日`, `午後3時` and `1階`.
+- Observed nonsensical parenthetical readings included `強風（つよいくう）`, `11月15日（かんどうつき）`, `現在（ぎょうごじさいぜん）`, `時刻（うんてんさいかいのこకిけい）` (contains Telugu characters), and `未定（みじょう）`.
+- One run passed the checks while still containing wrong readings. Passing the existing checks was therefore insufficient quality evidence. The supplied account does not fully characterize every remaining run.
+- The author reports correct readings from cloud **`gemini-3.5-flash-lite`** on these samples. This comparison does not establish correctness for arbitrary notices.
+
+Local changes add a compact device prompt forbidding readings and listing source fact tokens verbatim, retaining JSON `responseConstraint` and a conservative prompt budget. Both paths reject unsupported scripts in `easyJapanese`; device readings are rejected without modifying the response. Online `PREFER_ON_DEVICE` validation failures rerun once in cloud `gemini-3.5-flash-lite`, with an explicit reason line, actual response-source badge and both counters incremented. Offline or `ONLY_ON_DEVICE` validation failures allow at most two further device attempts. Ordinary cloud-first prompts/routing remain unchanged; SDK availability fallback for a device-first request shares its compact prompt.
+
+Post-change real Nano generation and human quality review have **not** been repeated in this implementation pass. The added tests verify prompts, validation, model selection, retry limits, UI messages and counters with mocks; they do not establish semantic accuracy, correct pronunciation or a higher Nano success rate. The earlier QA results below remain historical, not measurements of this patch.
+
+### Local verification of this quality change
+
+| Check | Result |
+| --- | --- |
+| `KOE_RELAY_TEST=1 npm test` | **104 passed**, 6 test files. Includes mocked model escalation, source/counter semantics, bounded device retries, script checks and prompt tests. |
+| `KOE_RELAY_TEST=1 npm run build` | Passed TypeScript checking and the isolated Vite production build. Existing optional-loader URL and large dictionary-chunk warnings remain. |
+| `KOE_RELAY_TEST=1 npm run test:browser` | **14 passed, 1 skipped**, 20.3 seconds. Includes visible cloud escalation/reason, final `IN_CLOUD` badge, both counters, failed cloud retry, and three-attempt device limits online/offline. The skipped opt-in real-speech test requires `RUN_TTS=1`; speech code was unchanged. |
+| `node scripts/check-production.mjs` | Passed on the isolated build. |
+| `git diff --check` | Passed. |
+
+The isolated build and test servers do not load the real environment files. No live Firebase request or post-change Nano inference was performed by these tests. The reading detector is a heuristic and may reject kana-only parenthetical notes as well as readings; the guards do not prove semantic accuracy.
+
+## Earlier QA commands and results
 
 Environment: Windows, Node.js **24.15.0**, npm **11.4.2**, desktop Chrome **157.0.8103.79** in headless Playwright.
 
@@ -25,7 +50,7 @@ Build warnings remain for large upstream dictionary chunks and an optional loade
 - `sw.js`: **HTTP 200**. All **18** files in its deployed shell manifest returned **HTTP 200** to HEAD requests, including runtime assets and bundled dictionaries.
 - A fresh browser context opened the hosted app, chose the fictional train sample and `ONLY_IN_CLOUD`, and clicked **Rewrite notice**. The live request completed with a visible result, **`IN_CLOUD`**, cloud counter **1**, device counter **0**, and **Rewrite ready**. No JavaScript page errors were observed.
 - App Check token exchange returned **HTTP 200** and the page loaded reCAPTCHA script. No debug token was configured in the test browser. This demonstrates one successful hosted cloud/App Check path, not universal attestation acceptance or future availability.
-- `LanguageModel.availability()` with the app's Japanese/English declarations returned **`unavailable`** on this machine. No real Nano generation, Nano download or offline Nano rewrite was verified.
+- In the original headless QA, `LanguageModel.availability()` with the app's Japanese/English declarations returned **`unavailable`**. That run verified no Nano generation, download or offline rewrite. The later author-supplied real Nano results are recorded above.
 - The existing hosted `favicon.ico` returns **404**. The local change adds `public/favicon.svg` and an explicit icon link; Vite emits `/koe-relay/favicon.svg`, verified **HTTP 200**, `image/svg+xml`, in production preview. The live favicon remains unchanged because nothing was pushed.
 
 The hosted run used the already deployed app. Local README, accessibility and favicon changes are not present on the public site yet.
@@ -83,7 +108,7 @@ The newly written SVG and this report were also reviewed for private data. Gener
 
 ## Remaining verification limits
 
-- Real Nano generation, on-device language quality and offline Nano operation need a compatible machine. The app uses Firebase AI Logic for that path in code, but the current machine cannot supply runtime evidence.
+- The later real Nano results above expose quality failures. The revised prompt's real device quality and offline Nano operation still require verification on a compatible machine; this implementation pass supplies mocked regression evidence.
 - The live cloud check covers one train rewrite in Chrome. It does not prove factual correctness, all translations, all browsers or future free-tier capacity.
 - Human review of generated text and speech is still needed; heuristics cannot guarantee readings, meaning, negation or safety-critical facts.
 - The app has no sign-in, paywall or judge allowlist. **Free and unrestricted access until judging ends remains an operational requirement**, not something a single QA run can guarantee. The owner must maintain hosting, sufficient quota and working App Check. Billing-console state, attestation enforcement settings and the entire judging period were not independently verified.

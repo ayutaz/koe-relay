@@ -42,7 +42,7 @@ it('keeps the serialized device prompt under a conservative UTF-8 byte budget', 
 
 it('gives generic reading and spelling guidance without leaking either sample into instructions', () => {
   for (const sample of Object.values(samples)) {
-    const instructions = buildPrompt(sample).split('NOTICE_JSON: ')[0];
+    const instructions = buildPrompt(sample, undefined, false).split('NOTICE_JSON: ')[0];
     expect(instructions).toContain('図書館（としょかん）');
     expect(instructions).toContain('Do not copy example content into the rewrite');
     for (const phrase of ['強風', 'つうふう', '確認してください', 'みてくだだい', '青葉', '川見', 'ひかり', '避難所']) {

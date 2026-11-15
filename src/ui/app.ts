@@ -38,6 +38,7 @@ export function mountApp(root: HTMLElement): void {
           <div class="section-top"><span class="step">02 / UNDERSTAND</span><span id="source" class="badge">NO INFERENCE YET</span></div>
           <h2 id="result-heading">The message, made clear</h2>
           <div class="counters" aria-label="Inference responses this session"><span>ON_DEVICE <strong id="device-count">0</strong></span><span>IN_CLOUD <strong id="cloud-count">0</strong></span><span>Unknown <strong id="unknown-count">0</strong></span></div>
+          <p id="escalation-message" class="message" role="status" hidden></p>
           <div id="empty-result" class="empty-result"><span class="empty-icon" aria-hidden="true">↳</span><h3>Your rewrite will appear here</h3><p>Key facts, what to do, and two clear versions.<br>No generated results are shown until AI responds.</p></div>
           <div id="result" hidden>
             <p id="quality-warning" class="quality-warning" role="alert" hidden></p>
@@ -124,6 +125,8 @@ export function mountApp(root: HTMLElement): void {
     el('source').textContent = 'NO INFERENCE YET';
     delete el('source').dataset.source;
     el('ai-message').textContent = '';
+    el('escalation-message').hidden = true;
+    el('escalation-message').textContent = '';
     el('retry').hidden = true;
     updateControls();
   }
@@ -146,11 +149,20 @@ export function mountApp(root: HTMLElement): void {
     delete el('source').dataset.source;
     updateControls();
     el('ai-message').textContent = 'Rewriting notice…';
+    const showEscalation = (message: string) => {
+      el('escalation-message').hidden = false;
+      el('escalation-message').textContent = message;
+      updateCounters();
+    };
+    el('escalation-message').hidden = true;
+    el('escalation-message').textContent = '';
     try {
-      const result = await rewriteNotice(input.value, mode.value as Mode, selectedLanguage());
+      const result = await rewriteNotice(input.value, mode.value as Mode, selectedLanguage(), showEscalation);
+      if (result.escalation) showEscalation(result.escalation);
       renderResult(result.notice, result.source, result.warnings);
       el('ai-message').textContent = result.warnings.length ? 'Rewrite needs review. Check the highlighted source facts before using it.' : 'Rewrite ready. Check the details against the original notice.';
     } catch (error) {
+      el('escalation-message').textContent = el('escalation-message').textContent?.replace('re-running in the cloud.', 'cloud retry failed.') ?? '';
       el('ai-message').textContent = `Rewrite failed: ${errorText(error)}`;
       el('source').textContent = 'NO VALID RESULT';
       el('retry').hidden = false;

@@ -27,6 +27,7 @@ it('configures both inference paths lazily and passes through download progress'
   const config = mocks.model.mock.calls[0] as unknown[];
   expect(config[1]).toMatchObject({ mode: 'prefer_on_device', inCloudParams: { generationConfig: { responseMimeType: 'application/json' } }, onDeviceParams: { createOptions: { expectedInputs: [{ type: 'text', languages: ['en', 'ja'] }], expectedOutputs: [{ type: 'text', languages: ['en', 'ja'] }] } } });
   expect((config[1] as { inCloudParams: { generationConfig: { responseSchema: unknown } } }).inCloudParams.generationConfig.responseSchema).toBeDefined();
+  expect(config[1]).toMatchObject({ onDeviceParams: { promptOptions: { responseConstraint: expect.anything() } } });
   expect((config[1] as { inCloudParams: { model: string } }).inCloudParams.model).toBe('gemini-3.5-flash-lite');
   expect(self).toHaveProperty('FIREBASE_APPCHECK_DEBUG_TOKEN', true);
   const onProgress = vi.fn();
@@ -36,6 +37,19 @@ it('configures both inference paths lazily and passes through download progress'
   firebase.getNoticeModel('ONLY_ON_DEVICE');
   expect(mocks.model).toHaveBeenCalledTimes(2);
   expect(mocks.appCheck).toHaveBeenCalledTimes(1);
+});
+
+it('pins quality escalation to flash-lite without changing ordinary cloud settings', async () => {
+  for (const key of keys) vi.stubEnv(key, 'test-placeholder');
+  vi.stubGlobal('self', {});
+  const firebase = await import('./firebase');
+  firebase.setCloudModel('gemini-3.5-flash');
+  firebase.getNoticeModel('ONLY_IN_CLOUD');
+  firebase.getNoticeModel('ONLY_IN_CLOUD', undefined, 'gemini-3.5-flash-lite');
+  firebase.getNoticeModel('ONLY_IN_CLOUD');
+  expect(mocks.model).toHaveBeenCalledTimes(2);
+  expect(mocks.model.mock.calls[0]).toMatchObject([expect.anything(), { inCloudParams: { model: 'gemini-3.5-flash' } }]);
+  expect(mocks.model.mock.calls[1]).toMatchObject([expect.anything(), { inCloudParams: { model: 'gemini-3.5-flash-lite' } }]);
 });
 
 it('reuses models until the configured cloud model changes', async () => {
